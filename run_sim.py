@@ -41,6 +41,7 @@ def run(i, N, L, b, D, filedir):
     for i in range(X.shape[0]):
         df = pd.DataFrame(X[i, :, :])
         df['t'] = t_save[i]
+        dfs.append(df)
     df = pd.concat(dfs, ignore_index=True, sort=False)
     df.set_index(['t'], inplace=True)
     df.to_csv(file)
