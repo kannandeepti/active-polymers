@@ -22,7 +22,7 @@ def test_bd_sim(i, N=101, L=100, b=1, D=1):
     X = with_srk1(N, L, b, np.tile(D, N), t, t_save)
     return X, t_save
 
-def run(i, N, L, b, D, filedir):
+def run(i, N, L, b, D, filedir, t=None):
     """ Run one simulation of a length L chain with N beads,
     Kuhn length b, and array of diffusion coefficients D."""
     file = Path(filedir)/f'tape{i}.csv'
@@ -32,7 +32,8 @@ def run(i, N, L, b, D, filedir):
         if file.parent.is_dir() is False:
             # if the parent directory does not exist and mkdir still failed, re-raise an exception
             raise
-    t = np.linspace(0, 1e5, int(1e7) + 1)
+    if t is None:
+        t = np.linspace(0, 1e5, int(1e7) + 1)
     print(f'Simulation time step: {t[1] - t[0]}')
     #save 100 conformations
     t_save = np.linspace(0, 1e5, 200 + 1)
@@ -51,13 +52,20 @@ if __name__ == '__main__':
     L = 100
     b = 1
     D = np.tile(1, N)
+    #define cosine wave of temperature activity with amplitude 5 times equilibrium temperature
+    #period of wave is 25, max is 11, min is 1
+    #B = 2 * np.pi / 25
+    #D = 5 * np.cos(B * np.arange(0, N)) + 6
+    #reduce time step by order of magnitude due to higher diffusivity
+    #t = np.linspace(0, 1e5, int(1e8) + 1)
+    #D[int(N//2)] = 10 #one hot bead
     filedir = Path('csvs/bdeq')
     func = partial(run, N=N, L=L, b=b, D=D, filedir=filedir)
     tic = time.perf_counter()
     pool_size = 8
     N = 16
     with Pool(pool_size) as p:
-        result = p.map(func, np.arange(0, N))
+        result = p.map(func, np.arange(2*N, 3*N))
     toc = time.perf_counter()
     print(f'Ran {N} simulations in {(toc - tic):0.4f}s')
 

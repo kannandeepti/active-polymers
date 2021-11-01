@@ -272,7 +272,8 @@ def with_srk1(N, L, b, D, t, t_save=None):
     bhat = np.sqrt(L0*b)  # mean squared bond length of discrete gaussian chain
     Nhat = L/b  # number of Kuhn lengths in chain
     Dhat = D*N/Nhat  # diffusion coef of a discrete gaussian chain bead
-    k_over_xi = 3*Dhat/bhat**2
+    #set spring constant to be 3D/b^2 where D is the diffusion coefficient of the coldest bead
+    k_over_xi = 3*np.min(Dhat)/bhat**2
     # initial position, sqrt(3) since generating per-coordinate
     x0 = bhat/np.sqrt(3)*np.random.randn(N, 3)
     # for jit, we unroll ``x0 = np.cumsum(x0, axis=0)``
@@ -302,8 +303,8 @@ def with_srk1(N, L, b, D, t, t_save=None):
         for j in range(1, N):
             #loop over 3 dimensions
             for n in range(3):
-                f[j, n] += -k_over_xi[j]*(x0[j, n] - x0[j-1, n])
-                f[j-1, n] += -k_over_xi[j]*(x0[j-1, n] - x0[j, n])
+                f[j, n] += -k_over_xi * (x0[j, n] - x0[j-1, n])
+                f[j-1, n] += -k_over_xi * (x0[j-1, n] - x0[j, n])
         K1 = f + Fbrown
         Fbrown = (np.sqrt(2*Dhat/h) * (dW + S[i]).T).T
         # estimate for slope at interval end
