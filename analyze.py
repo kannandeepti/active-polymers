@@ -2,11 +2,13 @@
 import numpy as np
 from bd import recommended_dt, with_srk1
 from rouse import linear_mid_msd, end2end_distance_gauss
+import matplotlib as mpl
 from matplotlib import pyplot as plt
 import seaborn as sns
 import pandas as pd
 from pathlib import Path
 from scipy.spatial.distance import pdist, squareform
+#from mayavi import mlab
 from multiprocessing import Pool
 import time
 sns.set()
@@ -58,45 +60,6 @@ dt = recommended_dt(N, L, b, D)
 print(f'Time step: {dt}')
 """
 
-#sun a sample Brownian dynamics simulation
-def test_bd_sim(i, N=101, L=100, b=1, D=1):
-    """ Test Brownian dynamics simulation for a random set of parameters
-    A single simulation of a single chain with dt = 0.01 and 10^5 time steps
-    finished in just 2 minutes.
-    """
-    dt = recommended_dt(N, L, b, D)
-    print(f'Maximum recommended time step: {dt}')
-    t = np.linspace(0, 1e5, int(1e7) + 1)
-    print(f'Simulation time step: {t[1] - t[0]}')
-    #save 100 conformations
-    t_save = np.linspace(0, 1e5, 100 + 1)
-    X = with_srk1(N, L, b, np.tile(D, N), t, t_save)
-    return X, t_save
-
-def run(i, N, L, b, D, filedir):
-    """ Run one simulation of a length L chain with N beads,
-    Kuhn length b, and array of diffusion coefficients D."""
-    file = Path(filedir)/f'tape{i}.csv'
-    try:
-        file.parent.mkdir(parents=True)
-    except:
-        if file.parent.is_dir() is False:
-            # if the parent directory does not exist and mkdir still failed, re-raise an exception
-            raise
-    t = np.linspace(0, 1e5, int(1e7) + 1)
-    print(f'Simulation time step: {t[1] - t[0]}')
-    #save 100 conformations
-    t_save = np.linspace(0, 1e5, 200 + 1)
-    X = with_srk1(N, L, b, D, t, t_save)
-    dfs = []
-    for i in range(X.shape[0]):
-        df = pd.DataFrame(X[i, :, :])
-        df['t'] = t_save[i]
-        dfs.append(df)
-    df = pd.concat(dfs, ignore_index=True, sort=False)
-    df.set_index(['t'], inplace=True)
-    df.to_csv(file)
-
 def process_sim(file):
     df = pd.read_csv(file)
     dfg = df.groupby('t')
@@ -109,6 +72,58 @@ def process_sim(file):
     X = np.array(X)
     assert(len(t_save) == X.shape[0])
     return X, t_save
+
+def to_XYZ(X, temps, filepath, filename, frames=None, L=100, b=1):
+    """" Convert the last frame of the simulation trajectory into an
+    XYZ file readable by OVITO visualization software.
+
+    TODO: export multiple frames to visualize simulation trajectory.
+    """
+    nframes, N, dim = X.shape
+    filepath = Path(filepath)
+    particle_radius = np.sqrt(L * b / (N - 1))/2
+    cmap = mpl.cm.get_cmap('coolwarm')
+    #if all the beads are at the same temperature, assume they are all cold
+    if len(np.unique(temps)) == 1:
+        colors = [mpl.colors.to_rgb(cmap(0.0)) for n in range(N)]
+    else:
+        #assign color based on temperature
+        norm = mpl.colors.Normalize(vmin=np.min(temps), vmax=np.max(temps))
+        colors = [mpl.colors.to_rgb(cmap(norm(d))) for d in temps]
+    assert (len(colors) == N)
+    with open(filepath/f'{filename}.txt', 'w') as f:
+        f.write(f'{N}\n\n')
+        for i in range(N):
+            f.write(f'{i} {X[-1, i, 0]} {X[-1, i, 1]} {X[-1, i, 2]} {particle_radius} {temps[i]} {colors[i][0]} {colors[i][1]} {colors[i][2]}\n')
+    """ TODO: Write topology and atom info in LAMMPS data format so as to not have to add modifiers in GUI application."""
+    """
+    topology = np.zeros((N-1, 4))
+    topology[:, 0] = np.arange(1, N)
+    topology[:, 1] = np.tile(1, N-1)
+    topology[:, 2:] = np.array([np.arange(n, n+2) for n in range(N - 1)])
+    with open(filepath/f'topology_{filename}.txt', 'w') as f:
+        f.write('LAMMPS Description\n\n')
+        f.write(f'{N-1} bonds\n\n')
+        f.write('Bonds\n\n')
+        for i in range(N-1):
+            f.write(f'{topology[i, 0]} {topology[i, 1]} {topology[i, 2]} {topology[i, 3]}\n')
+    """
+
+
+def convert_to_xyz(simdir, tape, L=100, b=1, **kwargs):
+    """ For specified tape (trajectory) within a given simulation directory,
+    write the last frame to an XYZ file, specifying temperature, etc."""
+    simdir = Path(simdir)
+    simname = simdir.name
+    X, t_save = process_sim(Path(simdir / f'tape{tape}.csv'))
+    nframes, N, dim = X.shape
+    D = np.tile(1, N)
+    if simname == 'mid_hot_bead':
+        D[int(N // 2)] = 10
+    if simname == 'cosine1':
+        B = 2 * np.pi / 25
+        D = 0.9 * np.cos(B * np.arange(0, N)) + 1
+    to_XYZ(X, D, simdir, f'tape{tape}_frame{nframes-1}', **kwargs)
 
 def end_to_end_distance_squared_vs_time(X, t_save, b=1, L=100):
     """ End to end distance is <R_N(t) - R_0(t)>, i.e. the norm of the position vector
@@ -184,15 +199,15 @@ def ensemble_ave_rouse_msd(simdir, b=1, D=1, L=100, N=101, ntraj=32):
         hot_monomer_msds += hot_bead_msd
         cold_monomer_msds += cold_beads_msd
         mean_monomer_msds += mean_beads_msd
-        if simname == 'mid_hot_bead':
-            ax.plot(t_save, hot_bead_msd, color=palette[ord[i]], alpha=0.4)
-        elif simname == 'bdeq':
-            ax.plot(t_save, mean_beads_msd, color=palette[ord[i]], alpha=0.4)
+        #if simname == 'mid_hot_bead':
+        #    ax.plot(t_save, hot_bead_msd, color=palette[ord[i]], alpha=0.4)
+        #elif simname == 'bdeq':
+        #    ax.plot(t_save, mean_beads_msd, color=palette[ord[i]], alpha=0.4)
 
     if simname == 'mid_hot_bead':
         ax.plot(t_save, hot_monomer_msds / ntraj, 'r-', label=f'hot bead (N={ntraj})')
         ax.plot(t_save, cold_monomer_msds / ntraj, 'b--', label=f'cold beads (N={ntraj})')
-    elif simname == 'bdeq':
+    elif simname == 'bdeq1':
         ax.plot(t_save, mean_monomer_msds / ntraj, 'b-', label=f'simulation average (N={ntraj})')
     analytical_msd = linear_mid_msd(t_save, b, Nhat, D, num_modes=int(N / 2))
     ax.plot(t_save, analytical_msd, 'k-', label=r'theory, $T_{\rm eq}$')
@@ -224,28 +239,92 @@ def average_R2_vs_time(simdir, b=1, D=1, L=100, N=101, ntraj=16):
     plt.savefig(f'plots/rsquared_vs_time_{simdir.name}.pdf')
     return fig, ax
 
-def two_point_msd(simdir, ntraj, N=101):
+def two_point_msd(simdir, ntraj, N=101, relative=False, squared=False):
     """Compute mean squared distance between two beads on a polymer at
     a particular time point. Plot heatmap"""
     #TODO: average over structures and average over time
     simdir = Path(simdir)
-    ntimes = 101
     average_dist = np.zeros((N, N))
-    nreplicates = ntraj * (ntimes - int(ntimes//2))
+    eq_dist = np.zeros((N, N))
+    metric = 'euclidean'
+    if squared:
+        metric = 'sqeuclidean'
+    #ignore first half of tape (steady state) and then take time slices every 10 save points
+    #to sample equilibrium structures
     for j in range(ntraj):
         X, t_save = process_sim(simdir / f'tape{j}.csv')
-        for i in range(int(ntimes//2), ntimes):
-            dist = pdist(X[i, :, :], metric='euclidean')
+        ntimes, _, _ = X.shape
+        nreplicates = ntraj * len(range(int(ntimes // 2), ntimes, 10))
+        Xeq, _ = process_sim(Path('csvs/bdeq1') / f'tape{j}.csv')
+        for i in range(int(ntimes//2), ntimes, 10):
+            #for temperature modulations
+            dist = pdist(X[i, :, :], metric=metric)
             Y = squareform(dist)
             average_dist += Y
+            #for equilibrium case
+            dist = pdist(Xeq[i, :, :], metric=metric)
+            eq_dist += squareform(dist)
     fig, ax = plt.subplots()
-    sns.heatmap(average_dist / nreplicates, xticklabels=10, yticklabels=10, ax=ax)
-    ax.set_title(r'Mean squared distance $\langle r_i(t) - r_j(t) \rangle$')
+    if relative:
+        sns.heatmap((average_dist / nreplicates) - (eq_dist / nreplicates), xticklabels=25,
+                    yticklabels=25, cmap='coolwarm', ax=ax)
+        if squared:
+            ax.set_title(r'MSD relative to uniform temperature')
+        else:
+            ax.set_title('Mean distance relative to uniform temperature')
+    else:
+        sns.heatmap(average_dist / nreplicates, xticklabels=25, yticklabels=25,
+                    cmap='coolwarm', ax=ax)
+        if squared:
+            ax.set_title(r'Mean squared distance $\langle\Vert \vec{r}_i(t) - \vec{r}_j(t) \Vert^2\rangle$')
+        else:
+            ax.set_title(r'Mean distance $\langle\Vert \vec{r}_i(t) - \vec{r}_j(t) \Vert\rangle$')
     ax.set_xlabel(r'Bead $i$')
     ax.set_ylabel(r'Bead $j$')
     fig.tight_layout()
-    plt.savefig(f'plots/two_point_msd_{simdir.name}.pdf')
+    if relative:
+        plt.savefig(f'plots/two_point_msd_{simdir.name}_relative.pdf')
+    else:
+        plt.savefig(f'plots/two_point_msd_{simdir.name}.pdf')
 
+    average_dist = average_dist / nreplicates
+    eq_dist = eq_dist / nreplicates
+    if squared:
+        Rg_squared = np.sum(average_dist) / (2 * N ** 2)
+    else:
+        Rg_squared = np.sum(average_dist ** 2) / (2 * N ** 2)
+    return Rg_squared, average_dist, eq_dist
+
+def plot_msd_from_center(N=101):
+    """ For all three simulation replicates, plot the MSD from the center
+    bead in the chain."""
+    Rgs_cosine, cosine_dist, eq_dist = two_point_msd('csvs/cosine1', 96)
+    Rgs_eq = np.sum(eq_dist) / (2 * N ** 2)
+    print(f'Radius of gyration (cosine): {Rgs_cosine}')
+    print(f'Radius of gyration (eq): {Rgs_eq}')
+    Rgs_midhot, mid_dist, _ = two_point_msd('csvs/mid_hot_bead', 96)
+    Rgs_midhot1, mid1_dist, _ = two_point_msd('csvs/mid_hot_bead1.9', 96)
+    print(f'Radius of gyration (midhot): {Rgs_midhot}')
+    fig, ax = plt.subplots()
+    ax.plot(np.arange(50, N), eq_dist[int(N / 2), int(N / 2):], label=r'$T_{\rm eq}$')
+    ax.plot(np.arange(50, N), cosine_dist[int(N / 2), int(N / 2):], label=r'$1.9 T_{\rm eq}$ (cosine)')
+    ax.plot(np.arange(50, N), mid1_dist[int(N / 2), int(N / 2):], label=r'$1.9 T_{\rm eq}$ (single hot bead)')
+    ax.plot(np.arange(50, N), mid_dist[int(N / 2), int(N / 2):], label=r'$10 T_{\rm eq}$ (single hot bead)')
+    ax.legend()
+    ax.set_xlabel('Beads to the right of center (i)')
+    ax.set_ylabel('Mean distance')
+    fig.tight_layout()
+    plt.savefig(f'plots/msd_from_center_allsims.pdf')
+
+def radius_of_gyration(simdir, ntraj=96):
+    """ Radius of gyration is defined as the mean distance of all beads to center of mass."""
+    Rg = []
+    for j in range(ntraj):
+        X, t_save = process_sim((Path(simdir) / f'tape{j}.csv'))
+        for i in range(int(ntimes // 2), ntimes, 10):
+            com = np.mean(X[i, :, :], axis=0)
+            Rg.append(np.sum((X[i, :, :] - com)**2, axis=-1).mean())
+    return np.array(Rg).mean()
 
 def end_to_end_distance(simdir, ntraj=16, b=1, L=100, N=101):
     """ End to end distance is <R_N(t) - R_0(t)>, i.e. the norm of the position vector
@@ -274,3 +353,28 @@ def end_to_end_distance(simdir, ntraj=16, b=1, L=100, N=101):
     #plt.yscale('log')
     fig.tight_layout()
     plt.show()
+
+def plot_chain(simdir, ntraj=96, mfig=None, **kwargs):
+    """ Plot a random chain from the last time point of one of these simulations"""
+    if mfig is None:
+        mfig = mlab.figure()
+    j = np.random.randint(0, ntraj)
+    X, t_save = process_sim(Path(simdir) / f'tape{j}.csv')
+    #take the last time slice -- 1 x N x 3 matrix
+    positions = X[-1, :, :]
+    print(positions.shape)
+    N = positions.shape[0]
+    D = np.tile(1, N)
+    cmap = mpl.cm.get_cmap('coolwarm')
+    colors = np.tile(mpl.colors.to_rgb(cmap(0.0)), N)
+    if simdir.name == 'cosine':
+        B = 2 * np.pi / 25
+        D = 5 * np.cos(B * np.arange(0, N)) + 6
+        norm = mpl.colors.Normalize(vmin=np.min(D), vmax=np.max(D))
+        cmap = mpl.cm.get_cmap('coolwarm')
+        colors = [mpl.colors.to_rgb(cmap(norm(d))) for d in D]
+        assert(len(colors) == N)
+    for i in range(positions.shape[0]):
+        mlab.points3d(positions[i, 0], positions[i, 1], positions[i, 2], scale_factor=5, figure=mfig,
+                      color=colors[i], **kwargs)
+    return mfig

@@ -1,6 +1,6 @@
 """ Script to run brownian dynamics simulations of active polymer."""
 import numpy as np
-from bd import recommended_dt, with_srk1
+from bd import recommended_dt, with_srk1, jit_confined_srk1
 import pandas as pd
 from pathlib import Path
 from multiprocessing import Pool
@@ -20,6 +20,21 @@ def test_bd_sim(i, N=101, L=100, b=1, D=1):
     #save 100 conformations
     t_save = np.linspace(0, 1e5, 100 + 1)
     X = with_srk1(N, L, b, np.tile(D, N), t, t_save)
+    return X, t_save
+
+def test_bd_sim_confined(N=101, L=100, b=1, D=1):
+    """ Test Brownian dynamics simulation for a random set of parameters
+    A single simulation of a single chain with dt = 0.01 and 10^5 time steps
+    finished in just 2 minutes.
+    """
+    dt = recommended_dt(N, L, b, D)
+    print(f'Maximum recommended time step: {dt}')
+    t = np.linspace(0, 1e5, int(1e7) + 1)
+    print(f'Simulation time step: {t[1] - t[0]}')
+    #save 100 conformations
+    t_save = np.linspace(0, 1e5, 100 + 1)
+    #radius of gyration is 16 --- confine it in smaller than this space
+    X = jit_confined_srk1(N, L, b, np.tile(D, N), 1.0, 10.0, 10.0, 10.0, t, t_save)
     return X, t_save
 
 def run(i, N, L, b, D, filedir, t=None):
@@ -42,6 +57,7 @@ def run(i, N, L, b, D, filedir, t=None):
     for i in range(X.shape[0]):
         df = pd.DataFrame(X[i, :, :])
         df['t'] = t_save[i]
+        df['D'] = D #save diffusivities of beads
         dfs.append(df)
     df = pd.concat(dfs, ignore_index=True, sort=False)
     df.set_index(['t'], inplace=True)
@@ -58,14 +74,19 @@ if __name__ == '__main__':
     #D = 5 * np.cos(B * np.arange(0, N)) + 6
     #reduce time step by order of magnitude due to higher diffusivity
     #t = np.linspace(0, 1e5, int(1e8) + 1)
-    #D[int(N//2)] = 10 #one hot bead
-    filedir = Path('csvs/bdeq')
+    """
+    D[int(N//2)] = 10 #one hot bead
+    filedir = Path('csvs/mid_hot_bead')
     func = partial(run, N=N, L=L, b=b, D=D, filedir=filedir)
     tic = time.perf_counter()
     pool_size = 8
-    N = 16
+    N = 64
     with Pool(pool_size) as p:
         result = p.map(func, np.arange(2*N, 3*N))
+    toc = time.perf_counter()
+    """
+    tic = time.perf_counter()
+    X, t_save = test_bd_sim_confined()
     toc = time.perf_counter()
     print(f'Ran {N} simulations in {(toc - tic):0.4f}s')
 

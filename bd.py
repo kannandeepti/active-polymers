@@ -216,7 +216,7 @@ def measured_D_to_rouse(Dapp, d, N, bhat=None, regime='rouse'):
     return (Dapp/(kappa*bhat))**2
 
 @njit
-def with_srk1(N, L, b, D, t, t_save=None):
+def with_srk1(N, L, b, D, t, t_save=None, Deq=1):
     r"""
     Just-in-time compilable example Rouse simulation.
     By in-lining the integrator and using numba, we are able to get over 1000x
@@ -272,8 +272,9 @@ def with_srk1(N, L, b, D, t, t_save=None):
     bhat = np.sqrt(L0*b)  # mean squared bond length of discrete gaussian chain
     Nhat = L/b  # number of Kuhn lengths in chain
     Dhat = D*N/Nhat  # diffusion coef of a discrete gaussian chain bead
+    Deq = Deq * N / Nhat
     #set spring constant to be 3D/b^2 where D is the diffusion coefficient of the coldest bead
-    k_over_xi = 3*np.min(Dhat)/bhat**2
+    k_over_xi = 3*Deq/bhat**2
     # initial position, sqrt(3) since generating per-coordinate
     x0 = bhat/np.sqrt(3)*np.random.randn(N, 3)
     # for jit, we unroll ``x0 = np.cumsum(x0, axis=0)``
@@ -312,8 +313,8 @@ def with_srk1(N, L, b, D, t, t_save=None):
         f = np.zeros(x0.shape)
         for j in range(1, N):
             for n in range(3):
-                f[j, n] += -k_over_xi[j]*(x1[j, n] - x1[j-1, n])
-                f[j-1, n] += -k_over_xi[j]*(x1[j-1, n] - x1[j, n])
+                f[j, n] += -k_over_xi*(x1[j, n] - x1[j-1, n])
+                f[j-1, n] += -k_over_xi*(x1[j-1, n] - x1[j, n])
         K2 = f + Fbrown
         x0 = x0 + h * (K1 + K2)/2
         if np.abs(t[i] - t_save[save_i]) < rtol*np.abs(t_save[save_i]):
@@ -321,5 +322,102 @@ def with_srk1(N, L, b, D, t, t_save=None):
             save_i += 1
     return x
 
+@njit
+def jit_confined_srk1(N, L, b, D, Aex, rx, ry, rz, t, t_save=None, Deq=1):
+    """
+    Add an elliptical confinement.
+
+    Energy is like cubed of distance
+    outside of ellipsoid, pointing normally back in. times some factor Aex
+    controlling its strength.
+    """
+    rtol = 1e-5
+    # derived parameters
+    L0 = L/(N-1)  # length per bead
+    bhat = np.sqrt(L0*b)  # mean squared bond length of discrete gaussian chain
+    Nhat = L/b  # number of Kuhn lengths in chain
+    Dhat = D*N/Nhat  # diffusion coef of a discrete gaussian chain bead
+    Deq = Deq * N / Nhat
+    #set spring constant to be 3D/b^2 where D is the diffusion coefficient of the coldest bead
+    k_over_xi = 3*Deq/bhat**2
+    # initial position
+    x0 = np.zeros((N, 3))
+    # x0 = np.cumsum(x0, axis=0)
+    for i in range(1, N):
+        # 1/sqrt(3) since generating per-coordinate
+        x0[i] = x0[i-1] + bhat/np.sqrt(3)*np.random.randn(3)
+        while x0[i, 0]**2/rx**2 + x0[i, 1]**2/ry**2 + x0[i, 2]**2/rz**2 > 1:
+            x0[i] = x0[i-1] + bhat/np.sqrt(3)*np.random.randn(3)
+    if t_save is None:
+        t_save = t
+    x = np.zeros(t_save.shape + x0.shape)
+    dts = np.diff(t)
+    # -1 or 1, p=1/2
+    S = 2*(np.random.rand(len(t)) < 0.5) - 1
+    save_i = 0
+    if 0 == t_save[save_i]:
+        x[0] = x0
+        save_i += 1
+    # at each step i, we use data (x,t)[i-1] to create (x,t)[i]
+    # in order to make it easy to pull into a new functin later, we'll call
+    # t[i-1] "t0", old x (x[i-1]) "x0", and t[i]-t[i-1] "h".
+    for i in range(1, len(t)):
+        h = dts[i-1]
+        dW = np.random.randn(*x0.shape)
+        # D = sigma^2/2 ==> sigma = np.sqrt(2*D)
+        #Fbrown = np.sqrt(2*Dhat/h)*(dW - S[i])
+        Fbrown = (np.sqrt(2 * Dhat / h) * (dW - S[i]).T).T
+        # estimate for slope at interval start
+        f = np.zeros(x0.shape)
+        j = 0
+        conf = x0[j, 0]**2/rx**2 + x0[j, 1]**2/ry**2 + x0[j, 2]**2/rz**2
+        if conf > 1:
+            conf_u = np.array([
+                -x0[j, 0]/rx**2, -x0[j, 1]/ry**2, -x0[j, 2]/rz**2
+            ])
+            conf_u = conf_u/np.linalg.norm(conf_u)
+            f[j] += Aex*conf_u*np.power(np.sqrt(conf) - 1, 3)
+        for j in range(1, N):
+            conf = x0[j, 0]**2/rx**2 + x0[j, 1]**2/ry**2 + x0[j, 2]**2/rz**2
+            if conf > 1:
+                conf_u = np.array([
+                    -x0[j, 0]/rx**2, -x0[j, 1]/ry**2, -x0[j, 2]/rz**2
+                ])
+                conf_u = conf_u/np.linalg.norm(conf_u)
+                f[j] += Aex*conf_u*np.power(np.sqrt(conf) - 1, 3)
+            for n in range(3):
+                f[j, n] += -k_over_xi*(x0[j, n] - x0[j-1, n])
+                f[j-1, n] += -k_over_xi*(x0[j-1, n] - x0[j, n])
+        K1 = f + Fbrown
+        #Fbrown = np.sqrt(2*Dhat/h)*(dW + S[i])
+        Fbrown = (np.sqrt(2 * Dhat / h) * (dW + S[i]).T).T
+        # estimate for slope at interval end
+        x1 = x0 + h*K1
+        f = np.zeros(x1.shape)
+        j = 0
+        conf = x1[j, 0]**2/rx**2 + x1[j, 1]**2/ry**2 + x1[j, 2]**2/rz**2
+        if conf > 1:
+            conf_u = np.array([
+                -x1[j, 0]/rx**2, -x1[j, 1]/ry**2, -x1[j, 2]/rz**2
+            ])
+            conf_u = conf_u/np.linalg.norm(conf_u)
+            f[j] += Aex*conf_u*np.power(np.sqrt(conf) - 1, 3)
+        for j in range(1, N):
+            conf = x1[j, 0]**2/rx**2 + x1[j, 1]**2/ry**2 + x1[j, 2]**2/rz**2
+            if conf > 1:
+                conf_u = np.array([
+                    -x1[j, 0]/rx**2, -x1[j, 1]/ry**2, -x1[j, 2]/rz**2
+                ])
+                conf_u = conf_u/np.linalg.norm(conf_u)
+                f[j] += Aex*conf_u*np.power(np.sqrt(conf) - 1, 3)
+            for n in range(3):
+                f[j, n] += -k_over_xi*(x1[j, n] - x1[j-1, n])
+                f[j-1, n] += -k_over_xi*(x1[j-1, n] - x1[j, n])
+        K2 = f + Fbrown
+        x0 = x0 + h * (K1 + K2)/2
+        if np.abs(t[i] - t_save[save_i]) < rtol*np.abs(t_save[save_i]):
+            x[save_i] = x0
+            save_i += 1
+    return x
 
 

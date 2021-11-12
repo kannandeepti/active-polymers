@@ -50,10 +50,11 @@ def kp_over_kbt(p: float, b: float, N: float):
     return (3*np.pi*np.pi)/(N*b*b) * p*p
 
 
-@jit(nopython=True)
+#@jit(nopython=True)
 def linear_mid_msd(t, b, N, D, num_modes=_default_modes):
     """
     modified from Weber Phys Rev E 2010, Eq. 24.
+    TODO: check why jit is not working with latest version of numpy
     """
     rouse_corr = np.zeros_like(t)
     for p in range(1, num_modes+1):
