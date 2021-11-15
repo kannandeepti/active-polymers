@@ -367,6 +367,11 @@ def jit_confined_srk1(N, L, b, D, Aex, rx, ry, rz, t, t_save=None, Deq=1):
         # D = sigma^2/2 ==> sigma = np.sqrt(2*D)
         #Fbrown = np.sqrt(2*Dhat/h)*(dW - S[i])
         Fbrown = (np.sqrt(2 * Dhat / h) * (dW - S[i]).T).T
+        if i==1:
+            print(Fbrown.shape)
+            Fbrown_alt = np.sqrt(2 * Dhat[0] / h) * (dW - S[i])
+            print(Fbrown_alt.shape)
+            assert(np.abs(Fbrown - Fbrown_alt).all() < 1e-5)
         # estimate for slope at interval start
         f = np.zeros(x0.shape)
         j = 0

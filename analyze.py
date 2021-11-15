@@ -1,9 +1,10 @@
 """ Script to run brownian dynamics simulations of active polymer."""
 import numpy as np
 from bd import recommended_dt, with_srk1
-from rouse import linear_mid_msd, end2end_distance_gauss
+from rouse import linear_mid_msd, end2end_distance_gauss, gaussian_Ploop
 import matplotlib as mpl
 from matplotlib import pyplot as plt
+from matplotlib.colors import LogNorm, Normalize
 import seaborn as sns
 import pandas as pd
 from pathlib import Path
@@ -254,9 +255,9 @@ def two_point_msd(simdir, ntraj, N=101, relative=False, squared=False):
     for j in range(ntraj):
         X, t_save = process_sim(simdir / f'tape{j}.csv')
         ntimes, _, _ = X.shape
-        nreplicates = ntraj * len(range(int(ntimes // 2), ntimes, 10))
+        nreplicates = ntraj * len(range(int(ntimes // 2), ntimes, 5))
         Xeq, _ = process_sim(Path('csvs/bdeq1') / f'tape{j}.csv')
-        for i in range(int(ntimes//2), ntimes, 10):
+        for i in range(int(ntimes//2), ntimes, 5):
             #for temperature modulations
             dist = pdist(X[i, :, :], metric=metric)
             Y = squareform(dist)
@@ -294,6 +295,68 @@ def two_point_msd(simdir, ntraj, N=101, relative=False, squared=False):
     else:
         Rg_squared = np.sum(average_dist ** 2) / (2 * N ** 2)
     return Rg_squared, average_dist, eq_dist
+
+def contact_probability(a, simdir, ntraj, N=101, relative=False, squared=False):
+    """Compute mean squared distance between two beads on a polymer at
+    a particular time point. Plot heatmap"""
+    #TODO: average over structures and average over time
+    simdir = Path(simdir)
+    average_dist = np.zeros((N, N))
+    #counts(i, j) = number of times monomer i and j loop within contact radius a
+    counts = np.zeros((N, N))
+    metric = 'euclidean'
+    #ignore first half of tape (steady state) and then take time slices every 10 save points
+    #to sample equilibrium structures
+    for j in range(ntraj):
+        X, t_save = process_sim(simdir / f'tape{j}.csv')
+        ntimes, _, _ = X.shape
+        nreplicates = ntraj * len(range(int(ntimes // 2), ntimes, 5))
+        Xeq, _ = process_sim(Path('csvs/bdeq1') / f'tape{j}.csv')
+        for i in range(int(ntimes//2), ntimes, 5):
+            #for temperature modulations
+            dist = pdist(X[i, :, :], metric=metric)
+            Y = squareform(dist)
+            counts += (Y < a)
+            average_dist += Y
+    #Plot contact map (each entry is probability of looping within radius a)
+    fig, ax = plt.subplots()
+    sns.heatmap(np.log10(counts), xticklabels=25, yticklabels=25, ax=ax)
+    ax.set_title(r'Log contact Map $\langle\Vert \vec{r}_i(t) - \vec{r}_j(t) \Vert\rangle < a$')
+    ax.set_xlabel(r'Bead $i$')
+    ax.set_ylabel(r'Bead $j$')
+    fig.tight_layout()
+    plt.savefig(f'plots/contact_map_{simdir.name}.pdf')
+    #To compute histogram as a function of s, distance along chain, sum over diagonals
+    sdistances = np.arange(0.0, N)
+    Ploop = np.zeros_like(sdistances)
+    for i in range(N):
+        if i == 0:
+            Ploop[i] += np.trace(counts, offset=0)
+        else:
+            Ploop[i] += np.trace(counts, offset=i)
+            Ploop[i] += np.trace(counts, offset=-i)
+    #P(loop | s) = P(loop, s) / P(s)
+    # number of entries of contact matrix where monomers are a distance s apart
+    p_of_s = (np.arange(1, N + 1))[::-1]
+    p_of_s[1:] *= 2
+    normalization = nreplicates * p_of_s
+    Ploop = Ploop / normalization
+    return counts, Ploop, sdistances, nreplicates
+
+def plot_ploop(sdistances, Ploop, nreplicates, a=1, b=1, Nhat=100):
+    #sdistances is anyway in units of kuhn lengths
+    analytical_ploop = [gaussian_Ploop(a, n, b) for n in sdistances[1:]]
+    fig, ax = plt.subplots()
+    ax.plot(sdistances, Ploop, label=f'Simulation estimate (n={nreplicates})')
+    ax.plot(sdistances[1:], analytical_ploop, label='Theory')
+    plt.yscale('log')
+    plt.xscale('log')
+    ax.set_xlabel('Distance along chain (s)')
+    ax.set_yaxis(f'Looping probability')
+    ax.set_title(f'Looping probability within contact radius a={a}')
+    plt.legend()
+    fig.tight_layout()
+    plt.show()
 
 def plot_msd_from_center(N=101):
     """ For all three simulation replicates, plot the MSD from the center
@@ -378,3 +441,56 @@ def plot_chain(simdir, ntraj=96, mfig=None, **kwargs):
         mlab.points3d(positions[i, 0], positions[i, 1], positions[i, 2], scale_factor=5, figure=mfig,
                       color=colors[i], **kwargs)
     return mfig
+
+def draw_power_law_triangle(alpha, x0, width, orientation, base=10,
+                            hypotenuse_only=False, **kwargs):
+    """Draw a triangle showing the best-fit power-law on a log-log scale.
+
+    Parameters
+    ----------
+    alpha : float
+        the power-law slope being demonstrated
+    x0 : (2,) array_like
+        the "left tip" of the power law triangle, where the hypotenuse starts
+        (in log units, to be consistent with draw_triangle)
+    width : float
+        horizontal size in number of major log ticks (default base-10)
+    orientation : string
+        'up' or 'down', control which way the triangle's right angle "points"
+    base : float
+        scale "width" for non-base 10
+
+    Returns
+    -------
+    corner : (2,) np.array
+        coordinates of the right-angled corner of the triangle
+    """
+    x0, y0 = [base**x for x in x0]
+    x1 = x0*base**width
+    y1 = y0*(x1/x0)**alpha
+    plt.plot([x0, x1], [y0, y1], 'k')
+    if (alpha >= 0 and orientation == 'up') \
+    or (alpha < 0 and orientation == 'down'):
+        if hypotenuse_only:
+            plt.plot([x0, x1], [y0, y1], 'k')
+        else:
+            plt.plot([x0, x1], [y1, y1], 'k')
+            plt.plot([x0, x0], [y0, y1], 'k')
+        # plt.plot lines have nice rounded caps
+        # plt.hlines(y1, x0, x1, **kwargs)
+        # plt.vlines(x0, y0, y1, **kwargs)
+        corner = [x0, y1]
+    elif (alpha >= 0 and orientation == 'down') \
+    or (alpha < 0 and orientation == 'up'):
+        if hypotenuse_only:
+            plt.plot([x0, x1], [y0, y1], 'k')
+        else:
+            plt.plot([x0, x1], [y0, y0], 'k')
+            plt.plot([x1, x1], [y0, y1], 'k')
+        # plt.hlines(y0, x0, x1, **kwargs)
+        # plt.vlines(x1, y0, y1, **kwargs)
+        corner = [x1, y0]
+    else:
+        raise ValueError(r"Need $\alpha\in\mathbb{R} and orientation\in{'up', 'down'}")
+    return corner
+

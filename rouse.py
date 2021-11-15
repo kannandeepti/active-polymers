@@ -10,7 +10,7 @@ beads, each of which can represent an arbitrary number of Kuhn lengths.
 import numpy as np
 import scipy
 import scipy.special
-#import spycial
+import spycial
 from numba import jit
 import mpmath
 

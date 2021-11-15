@@ -34,7 +34,7 @@ def test_bd_sim_confined(N=101, L=100, b=1, D=1):
     #save 100 conformations
     t_save = np.linspace(0, 1e5, 100 + 1)
     #radius of gyration is 16 --- confine it in smaller than this space
-    X = jit_confined_srk1(N, L, b, np.tile(D, N), 1.0, 10.0, 10.0, 10.0, t, t_save)
+    X = jit_confined_srk1(N, L, b, np.tile(D, N), 1.0, 10.0, 10.0, 10.0, t, t_save=t_save)
     return X, t_save
 
 def run(i, N, L, b, D, filedir, t=None):
@@ -64,10 +64,10 @@ def run(i, N, L, b, D, filedir, t=None):
     df.to_csv(file)
 
 if __name__ == '__main__':
-    N = 101
-    L = 100
-    b = 1
-    D = np.tile(1, N)
+    #N = 101
+    #L = 100
+    #b = 1
+    #D = np.tile(1, N)
     #define cosine wave of temperature activity with amplitude 5 times equilibrium temperature
     #period of wave is 25, max is 11, min is 1
     #B = 2 * np.pi / 25
