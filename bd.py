@@ -1,5 +1,20 @@
 r"""
-Submodule for simulating Rouse polymers.
+Simulations of Active Rouse polymers (based on wlcsim.bd.rouse)
+---------------------------------------------------------------
+
+We adapt the wlcsim.bd.rouse module developed by the Spakowitz Lab
+to perform Brownian dynamics simulations of active Rouse polymers.
+At equilibrium, all monomers of the chain experience the same magnitude
+of stochastic kicks, i.e. are at uniform temperature. Out of equilibrum,
+activity along the polymer (i.e. action of motor proteins and enzymes
+that walk along the DNA) can induce stronger kicks along certain regions
+of the chain, which can be modeled as a local increase in the effective
+temperature of the monomer. Here we explore a minimal model in which
+each monomer of the chain is coupled to a different Langevin thermostat.
+
+The active_polymers.analyze module then allows one to compute the mean distance
+between all pairs of monomers, as well as contact probabilities.
+
 Contains routines for easily parameterizing Rouse polymer simulations and some
 simple pre-built example simulators:
     1. **with_integrator**: Example Rouse simulator. Uses a discrete Rouse
@@ -265,6 +280,11 @@ def with_srk1(N, L, b, D, t, t_save=None, Deq=1):
     2DI\delta(t-t')`.
     Notice that in practice, :math:`k/\xi = 3D/b^2`, so we do not need to
     include mass units (i.e. there's no dependence on :math:`k_BT`).
+
+    TODO: pass in dt (time step) and DT (time between save points) to
+    save memory and be able to use shorter time steps / run longer simulations.
+
+    TODO: implement SRK2 scheme for use with WCA potential.
     """
     rtol = 1e-5
     # derived parameters
@@ -322,6 +342,80 @@ def with_srk1(N, L, b, D, t, t_save=None, Deq=1):
             save_i += 1
     return x
 
+def correlated_noise(N, L, b, D, C, h, tmax, t_save, Deq=1):
+    """ Add correlation matrix for noise, as opposed to just
+    temperature modulations.
+
+    Parameters
+    ----------
+    D : array-like (N,)
+        diffusivity of each monomer (> 0)
+    C : array-like (N, N)
+        correlation matrix (values from -1 to 1), must be symmetric
+    h : float
+        time step
+    tmax : float
+        maximum simulation time
+    """
+    rtol = 1e-5
+    # derived parameters
+    L0 = L / (N - 1)  # length per bead
+    bhat = np.sqrt(L0 * b)  # mean squared bond length of discrete gaussian chain
+    Nhat = L / b  # number of Kuhn lengths in chain
+    Dhat = D * N / Nhat  # diffusion coef of a discrete gaussian chain bead
+    Deq = Deq * N / Nhat
+    # set spring constant to be 3D/b^2 where D is the diffusion coefficient of the coldest bead
+    k_over_xi = 3 * Deq / bhat ** 2
+    # initial position, sqrt(3) since generating per-coordinate
+    x0 = bhat / np.sqrt(3) * np.random.randn(N, 3)
+    # for jit, we unroll ``x0 = np.cumsum(x0, axis=0)``
+    for i in range(1, N):
+        x0[i] = x0[i - 1] + x0[i]
+    x = np.zeros(t_save.shape + x0.shape)
+    save_i = 0
+    if 0 == t_save[save_i]:
+        x[0] = x0
+        save_i += 1
+    #standard deviation of noise
+    sigma = np.sqrt(2 * Dhat / h)
+    #covariance matrix for noise: diag(std) @ C @ diag(std), i.e. cov(x,y) = corr(x,y)*sigma_x*sigma_y
+    cov = C * np.outer(sigma, sigma)
+    cky = np.linalg.cholesky(cov) #N x N matrix
+    # at each step i, we use data (x,t)[i-1] to create (x,t)[i]
+    # in order to make it easy to pull into a new functin later, we'll call
+    # t[i-1] "t0", old x (x[i-1]) "x0", and t[i]-t[i-1] "h".
+    ntimesteps = int(tmax // h) + 1 #including 0th time step
+    # -1 or 1, p=1/2
+    S = 2 * (np.random.rand(ntimesteps) < 0.5) - 1
+    for i in range(1, ntimesteps):
+        #correlated noise matrix (N x 3)
+        dW = np.random.randn(*x0.shape)
+        # D = sigma^2/2 ==> sigma = np.sqrt(2*D)
+        Fbrown = np.dot(cky, dW - S[i])
+        # estimate for slope at interval start
+        f = np.zeros(x0.shape)
+        # loop over N beads
+        for j in range(1, N):
+            # loop over 3 dimensions
+            for n in range(3):
+                f[j, n] += -k_over_xi * (x0[j, n] - x0[j - 1, n])
+                f[j - 1, n] += -k_over_xi * (x0[j - 1, n] - x0[j, n])
+        K1 = f + Fbrown
+        Fbrown = np.dot(cky, dW + S[i])
+        # estimate for slope at interval end
+        x1 = x0 + h * K1
+        f = np.zeros(x0.shape)
+        for j in range(1, N):
+            for n in range(3):
+                f[j, n] += -k_over_xi * (x1[j, n] - x1[j - 1, n])
+                f[j - 1, n] += -k_over_xi * (x1[j - 1, n] - x1[j, n])
+        K2 = f + Fbrown
+        x0 = x0 + h * (K1 + K2) / 2
+        if np.abs(i*h - t_save[save_i]) < rtol * np.abs(t_save[save_i]):
+            x[save_i] = x0
+            save_i += 1
+    return x
+
 @njit
 def f_self_avoidance(x, a, dsq):
     """ Force due to overlap with other monomers via a repulsive LJ potential.
@@ -333,7 +427,7 @@ def f_self_avoidance(x, a, dsq):
     a : float
         diameter of monomer
     dsq : float
-        square of d = minimum of LJ potential (computed once)
+        square of d = minimum of LJ potential = 2^(1/6)*a (computed once)
     """
     f = np.zeros(x.shape)
     for i in range(x.shape[0]):
@@ -416,7 +510,9 @@ def f_combined(x0, k_over_xi, Aex, rx, ry, rz, a, dsq):
 
 @njit
 def init_conf_avoid(N, bhat, rx, ry, rz, dsq):
-    """ Initialize beads to be in confinement and to not overlap."""
+    """ Initialize beads to be in confinement and to not overlap.
+    TODO: test.
+    """
     # initial position
     x0 = np.zeros((N, 3))
     for i in range(1, N):
@@ -424,13 +520,15 @@ def init_conf_avoid(N, bhat, rx, ry, rz, dsq):
         x0[i] = x0[i - 1] + bhat / np.sqrt(3) * np.random.randn(3)
         #keep redrawing new positions until within confinement and no overlap with existing beads
         while (x0[i, 0] ** 2 / rx ** 2 + x0[i, 1] ** 2 / ry ** 2 + x0[i, 2] ** 2 / rz ** 2 > 1
-                and np.any(np.sum((x0[i, :] - x0[:i, :])**2, axis=-1) <= dsq))q:
+                and np.any(np.sum((x0[i, :] - x0[:i, :])**2, axis=-1) <= dsq)):
             x0[i] = x0[i - 1] + bhat / np.sqrt(3) * np.random.randn(3)
     return x0
 
 @njit
 def jit_conf_avoid(N, L, b, D, a, Aex, rx, ry, rz, t, t_save=None, Deq=1):
-    """ Clean version of BD code with forces and initialization in separate functions."""
+    """ Clean version of BD code with forces and initialization in separate functions.
+    NOTE: this function does not yet work with srk_1 scheme. TODO: debug.
+    """
     d = 2.0 ** (1 / 6) * a
     dsq = d ** 2
     rtol = 1e-5
@@ -488,8 +586,15 @@ def jit_confined_srk1(N, L, b, D, Aex, rx, ry, rz, t, t_save=None, Deq=1):
 
     Parameters
     ----------
-    a : float
-        Diameter of a monomer bead
+    Aex : float
+        Strength of elliptical confinement
+    rx : float
+        semi-major x-axis of ellipsoid
+    ry : float
+        semi-major y-axis of ellipsoid
+    rz : float
+        semi-major z-axis of ellipsoid
+
     """
     rtol = 1e-5
     # derived parameters
