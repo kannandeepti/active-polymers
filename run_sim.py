@@ -1,6 +1,6 @@
 """ Script to run brownian dynamics simulations of active polymer."""
 import numpy as np
-from bd import recommended_dt, with_srk1, jit_confined_srk1
+from bd import recommended_dt, with_srk1, jit_confined_srk1, jit_conf_avoid
 import pandas as pd
 from pathlib import Path
 from multiprocessing import Pool
@@ -35,6 +35,13 @@ def test_bd_sim_confined(N=101, L=100, b=1, D=1):
     t_save = np.linspace(0, 1e5, 100 + 1)
     #radius of gyration is 16 --- confine it in smaller than this space
     X = jit_confined_srk1(N, L, b, np.tile(D, N), 1.0, 10.0, 10.0, 10.0, t, t_save=t_save)
+    return X, t_save
+
+def test_bd_clean(N=11, L=10, b=1, D=1.0, a=1.0):
+    D = np.tile(D, N)
+    t = np.linspace(0, 1e2, int(1e4) + 1)
+    t_save = np.linspace(0, 1e2, 100 + 1)
+    X = jit_conf_avoid(N, L, b, D, a, 5.0, 8.0, 8.0, 8.0, t, t_save)
     return X, t_save
 
 def run(i, N, L, b, D, filedir, t=None):
@@ -86,7 +93,7 @@ if __name__ == '__main__':
     toc = time.perf_counter()
     """
     tic = time.perf_counter()
-    X, t_save = test_bd_sim_confined()
+    X, t_save = test_bd_clean()
     toc = time.perf_counter()
-    print(f'Ran {N} simulations in {(toc - tic):0.4f}s')
+    print(f'Ran simulation in {(toc - tic):0.4f}s')
 

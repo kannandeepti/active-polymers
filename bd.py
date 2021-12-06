@@ -323,6 +323,161 @@ def with_srk1(N, L, b, D, t, t_save=None, Deq=1):
     return x
 
 @njit
+def f_self_avoidance(x, a, dsq):
+    """ Force due to overlap with other monomers via a repulsive LJ potential.
+
+    Parameters
+    ----------
+    x : (N, 3) array-like
+        positions of N monomers in Rouse chain
+    a : float
+        diameter of monomer
+    dsq : float
+        square of d = minimum of LJ potential (computed once)
+    """
+    f = np.zeros(x.shape)
+    for i in range(x.shape[0]):
+        #force on monomer i due to all other monomers j not equal to i
+        #For each monomer, compute distances to all other monomers.
+        #naive way: relative position from x
+        #for j > i, compute distances to monomer i
+        for j in range(i + 1, x.shape[0]):
+            dist = x[j] - x[i]
+            rijsq = np.sum(dist**2)
+            if rijsq <= dsq:
+                rij = np.sqrt(rijsq)
+                unit_rij = dist / rij
+                ratio = a / rij
+                fji = (24 / rij) * (2 * ratio ** 12 - ratio ** 6)
+                f[i] -= fji * unit_rij # force on monomer i due to overlap with monomer j
+                f[j] += fji * unit_rij # equal and opposite force on monomer j
+    return f
+
+@njit
+def f_conf_ellipse(x0, Aex, rx, ry, rz):
+    """Compute soft (cubic) force due to elliptical confinement."""
+    N, _ = x0.shape
+    f = np.zeros(x0.shape)
+    for j in range(N):
+        conf = x0[j, 0]**2/rx**2 + x0[j, 1]**2/ry**2 + x0[j, 2]**2/rz**2
+        if conf > 1:
+            conf_u = np.array([
+                -x0[j, 0]/rx**2, -x0[j, 1]/ry**2, -x0[j, 2]/rz**2
+            ])
+            conf_u = conf_u/np.linalg.norm(conf_u)
+            # Steph's confinement from
+            # https://journals.aps.org/pre/abstract/10.1103/PhysRevE.82.011913
+            f[j] += Aex*conf_u*np.power(np.sqrt(conf) - 1, 3)
+    return f
+
+@njit
+def f_elas_linear_rouse(x0, k_over_xi, Aex, rx, ry, rz):
+    """Compute spring forces on single, linear rouse polymer."""
+    N, _ = x0.shape
+    f = np.zeros(x0.shape)
+    for j in range(1, N):
+        for n in range(3):
+            f[j, n] += -k_over_xi*(x0[j, n] - x0[j-1, n])
+            f[j-1, n] += -k_over_xi*(x0[j-1, n] - x0[j, n])
+    return f
+
+@njit
+def f_combined(x0, k_over_xi, Aex, rx, ry, rz, a, dsq):
+    """ Compute forces due to springs, confinement, and self-avoidance
+    all in the same for loop."""
+    N, _ = x0.shape
+    f = np.zeros(x0.shape)
+    for i in range(N):
+        #SPRING FORCES
+        if i >= 1:
+            for n in range(3):
+                f[i, n] += -k_over_xi * (x0[i, n] - x0[i - 1, n])
+                f[i - 1, n] += -k_over_xi * (x0[i - 1, n] - x0[i, n])
+        #CONFINEMENT
+        conf = x0[i, 0] ** 2 / rx ** 2 + x0[i, 1] ** 2 / ry ** 2 + x0[i, 2] ** 2 / rz ** 2
+        if conf > 1:
+            conf_u = np.array([
+                -x0[i, 0] / rx ** 2, -x0[i, 1] / ry ** 2, -x0[i, 2] / rz ** 2
+            ])
+            conf_u = conf_u / np.linalg.norm(conf_u)
+            f[i] += Aex * conf_u * np.power(np.sqrt(conf) - 1, 3)
+        #SELF-AVOIDANCE via repulsive LJ potential
+        for j in range(i + 1, N):
+            dist = x0[j] - x0[i]
+            rijsq = np.sum(dist**2)
+            if rijsq <= dsq:
+                rij = np.sqrt(rijsq)
+                unit_rij = dist / rij
+                ratio = a / rij
+                fji = (24 / rij) * (2 * ratio ** 12 - ratio ** 6)
+                f[i] -= fji * unit_rij # force on monomer i due to overlap with monomer j
+                f[j] += fji * unit_rij # equal and opposite force on monomer j
+    return f
+
+@njit
+def init_conf_avoid(N, bhat, rx, ry, rz, dsq):
+    """ Initialize beads to be in confinement and to not overlap."""
+    # initial position
+    x0 = np.zeros((N, 3))
+    for i in range(1, N):
+        # 1/sqrt(3) since generating per-coordinate
+        x0[i] = x0[i - 1] + bhat / np.sqrt(3) * np.random.randn(3)
+        #keep redrawing new positions until within confinement and no overlap with existing beads
+        while (x0[i, 0] ** 2 / rx ** 2 + x0[i, 1] ** 2 / ry ** 2 + x0[i, 2] ** 2 / rz ** 2 > 1
+                and np.any(np.sum((x0[i, :] - x0[:i, :])**2, axis=-1) <= dsq))q:
+            x0[i] = x0[i - 1] + bhat / np.sqrt(3) * np.random.randn(3)
+    return x0
+
+@njit
+def jit_conf_avoid(N, L, b, D, a, Aex, rx, ry, rz, t, t_save=None, Deq=1):
+    """ Clean version of BD code with forces and initialization in separate functions."""
+    d = 2.0 ** (1 / 6) * a
+    dsq = d ** 2
+    rtol = 1e-5
+    # derived parameters
+    L0 = L / (N - 1)  # length per bead
+    bhat = np.sqrt(L0 * b)  # mean squared bond length of discrete gaussian chain
+    Nhat = L / b  # number of Kuhn lengths in chain
+    Dhat = D * N / Nhat  # diffusion coef of a discrete gaussian chain bead
+    Deq = Deq * N / Nhat
+    # set spring constant to be 3D/b^2 where D is the diffusion coefficient of the coldest bead
+    k_over_xi = 3 * Deq / bhat ** 2
+    #initial position
+    x0 = init_conf_avoid(N, bhat, rx, ry, rz, dsq)
+    # pre-alloc output
+    if t_save is None:
+        t_save = t
+    x = np.zeros(t_save.shape + x0.shape)
+    # setup for saving only requested time points
+    save_i = 0
+    if 0 == t_save[save_i]:
+        x[0] = x0
+        save_i += 1
+    # at each step i, we use data (x,t)[i-1] to create (x,t)[i]
+    # in order to make it easy to pull into a new function later, we'll call
+    # t[i-1] "t0", old x (x[i-1]) "x0", and t[i]-t[i-1] "h".
+    for i in range(1, len(t)):
+        h = t[i] - t[i - 1]
+        dW = np.random.randn(*x0.shape)
+        # -1 or 1, p=1/2
+        S = 2 * (np.random.rand() < 0.5) - 1
+        # D = sigma^2/2 ==> sigma = np.sqrt(2*D)
+        Fbrown = (np.sqrt(2 * Dhat / h) * (dW - S).T).T
+        # estimate for slope at interval start
+        K1 = f_combined(x0, k_over_xi, Aex, rx, ry, rz, a, dsq) + Fbrown
+        Fbrown = (np.sqrt(2 * Dhat / h) * (dW + S).T).T
+        x1 = x0 + h * K1
+        # estimate for slope at interval end
+        K2 = f_combined(x0, k_over_xi, Aex, rx, ry, rz, a, dsq) + Fbrown
+        # average the slope estimates
+        x0 = x0 + h * (K1 + K2) / 2
+        if np.abs(t[i] - t_save[save_i]) < rtol * np.abs(t_save[save_i]):
+            x[save_i] = x0
+            save_i += 1
+    return x
+
+
+@njit
 def jit_confined_srk1(N, L, b, D, Aex, rx, ry, rz, t, t_save=None, Deq=1):
     """
     Add an elliptical confinement.
@@ -330,6 +485,11 @@ def jit_confined_srk1(N, L, b, D, Aex, rx, ry, rz, t, t_save=None, Deq=1):
     Energy is like cubed of distance
     outside of ellipsoid, pointing normally back in. times some factor Aex
     controlling its strength.
+
+    Parameters
+    ----------
+    a : float
+        Diameter of a monomer bead
     """
     rtol = 1e-5
     # derived parameters
@@ -367,11 +527,6 @@ def jit_confined_srk1(N, L, b, D, Aex, rx, ry, rz, t, t_save=None, Deq=1):
         # D = sigma^2/2 ==> sigma = np.sqrt(2*D)
         #Fbrown = np.sqrt(2*Dhat/h)*(dW - S[i])
         Fbrown = (np.sqrt(2 * Dhat / h) * (dW - S[i]).T).T
-        if i==1:
-            print(Fbrown.shape)
-            Fbrown_alt = np.sqrt(2 * Dhat[0] / h) * (dW - S[i])
-            print(Fbrown_alt.shape)
-            assert(np.abs(Fbrown - Fbrown_alt).all() < 1e-5)
         # estimate for slope at interval start
         f = np.zeros(x0.shape)
         j = 0

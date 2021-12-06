@@ -1,6 +1,5 @@
 """ Script to run brownian dynamics simulations of active polymer."""
 import numpy as np
-from bd import recommended_dt, with_srk1
 from rouse import linear_mid_msd, end2end_distance_gauss, gaussian_Ploop
 import matplotlib as mpl
 from matplotlib import pyplot as plt
@@ -9,9 +8,6 @@ import seaborn as sns
 import pandas as pd
 from pathlib import Path
 from scipy.spatial.distance import pdist, squareform
-#from mayavi import mlab
-from multiprocessing import Pool
-import time
 sns.set()
 
 params = {'axes.edgecolor': 'black',
@@ -121,7 +117,7 @@ def convert_to_xyz(simdir, tape, L=100, b=1, **kwargs):
     D = np.tile(1, N)
     if simname == 'mid_hot_bead':
         D[int(N // 2)] = 10
-    if simname == 'cosine1':
+    if simname[0:6] == 'cosine':
         B = 2 * np.pi / 25
         D = 0.9 * np.cos(B * np.arange(0, N)) + 1
     to_XYZ(X, D, simdir, f'tape{tape}_frame{nframes-1}', **kwargs)
@@ -296,7 +292,7 @@ def two_point_msd(simdir, ntraj, N=101, relative=False, squared=False):
         Rg_squared = np.sum(average_dist ** 2) / (2 * N ** 2)
     return Rg_squared, average_dist, eq_dist
 
-def contact_probability(a, simdir, ntraj, N=101, relative=False, squared=False):
+def contact_probability(a, simdir, ntraj, N=101, eq_contacts=None):
     """Compute mean squared distance between two beads on a polymer at
     a particular time point. Plot heatmap"""
     #TODO: average over structures and average over time
@@ -320,8 +316,16 @@ def contact_probability(a, simdir, ntraj, N=101, relative=False, squared=False):
             average_dist += Y
     #Plot contact map (each entry is probability of looping within radius a)
     fig, ax = plt.subplots()
-    sns.heatmap(np.log10(counts), xticklabels=25, yticklabels=25, ax=ax)
-    ax.set_title(r'Log contact Map $\langle\Vert \vec{r}_i(t) - \vec{r}_j(t) \Vert\rangle < a$')
+    contacts = counts / nreplicates
+    if eq_contacts is not None:
+        sns.heatmap(contacts - eq_contacts, center=0.0,
+                    cmap="vlag", xticklabels=25, yticklabels=25, robust=True, ax=ax)
+        ax.set_title(r'Contact map relative to equilibrium')
+    else:
+        contacts[contacts == 0] = 1e-5
+        sns.heatmap(contacts, norm=LogNorm(vmin=contacts.min(), vmax=contacts.max()),
+                    cmap="Reds", xticklabels=25, yticklabels=25, robust=True, ax=ax)
+        ax.set_title(r'Contact Map $P(\Vert \vec{r}_i(t) - \vec{r}_j(t) \Vert < a)$')
     ax.set_xlabel(r'Bead $i$')
     ax.set_ylabel(r'Bead $j$')
     fig.tight_layout()
@@ -343,20 +347,23 @@ def contact_probability(a, simdir, ntraj, N=101, relative=False, squared=False):
     Ploop = Ploop / normalization
     return counts, Ploop, sdistances, nreplicates
 
-def plot_ploop(sdistances, Ploop, nreplicates, a=1, b=1, Nhat=100):
+def plot_ploop(sdistances, Ploop, nreplicates, descriptor, a=1, b=1):
     #sdistances is anyway in units of kuhn lengths
     analytical_ploop = [gaussian_Ploop(a, n, b) for n in sdistances[1:]]
     fig, ax = plt.subplots()
     ax.plot(sdistances, Ploop, label=f'Simulation estimate (n={nreplicates})')
     ax.plot(sdistances[1:], analytical_ploop, label='Theory')
+    corner = draw_power_law_triangle(-3/2, [1, -0.5], 0.5, 'up', base=10,
+                            hypotenuse_only=False)
+    ax.text(12.0, 0.07, r'$s^{-3/2}$')
     plt.yscale('log')
     plt.xscale('log')
     ax.set_xlabel('Distance along chain (s)')
-    ax.set_yaxis(f'Looping probability')
+    ax.set_ylabel(f'Looping probability')
     ax.set_title(f'Looping probability within contact radius a={a}')
     plt.legend()
     fig.tight_layout()
-    plt.show()
+    plt.savefig(f'plots/ploop_{descriptor}.pdf')
 
 def plot_msd_from_center(N=101):
     """ For all three simulation replicates, plot the MSD from the center
@@ -384,10 +391,40 @@ def radius_of_gyration(simdir, ntraj=96):
     Rg = []
     for j in range(ntraj):
         X, t_save = process_sim((Path(simdir) / f'tape{j}.csv'))
+        ntimes, _, _ = X.shape
         for i in range(int(ntimes // 2), ntimes, 10):
             com = np.mean(X[i, :, :], axis=0)
             Rg.append(np.sum((X[i, :, :] - com)**2, axis=-1).mean())
     return np.array(Rg).mean()
+
+def distance_from_com(simdir, ntraj=96, N=101):
+    B = 2 * np.pi / 25
+    D = 0.9 * np.cos(B * np.arange(0, N)) + 1
+    hot_beads = np.zeros((N,), dtype=bool)
+    hot_beads[D == 1.9] = True
+    print(hot_beads.sum())
+    cold_beads = np.zeros((N,), dtype=bool)
+    cold_beads[D == D.min()] = True
+    print(cold_beads.sum())
+    hot_bead_distances = []
+    cold_bead_distances = []
+    for j in range(ntraj):
+        X, t_save = process_sim((Path(simdir) / f'tape{j}.csv'))
+        ntimes, _, _ = X.shape
+        for i in range(int(ntimes // 2), ntimes, 5):
+            com = np.mean(X[i, :, :], axis=0)
+            distances_to_com = np.sum((X[i, :, :] - com) ** 2, axis=-1)
+            hot_bead_distances += list(distances_to_com[hot_beads])
+            cold_bead_distances += list(distances_to_com[cold_beads])
+    fig, ax = plt.subplots()
+    ax.hist(hot_bead_distances, bins='auto', label='hot', density=True, color='red', histtype='step')
+    ax.hist(cold_bead_distances, bins='auto', label='cold', density=True, color='blue', histtype='step')
+    ax.set_xlabel('Distance to COM')
+    ax.set_title('Radial distribution function')
+    ax.legend()
+    fig.tight_layout()
+    plt.savefig('plots/radial_distribution_cosine_conf.pdf')
+    return hot_bead_distances, cold_bead_distances
 
 def end_to_end_distance(simdir, ntraj=16, b=1, L=100, N=101):
     """ End to end distance is <R_N(t) - R_0(t)>, i.e. the norm of the position vector

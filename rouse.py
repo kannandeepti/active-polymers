@@ -10,7 +10,7 @@ beads, each of which can represent an arbitrary number of Kuhn lengths.
 import numpy as np
 import scipy
 import scipy.special
-import spycial
+#import spycial
 from numba import jit
 import mpmath
 
@@ -167,12 +167,12 @@ def gaussian_G(r, N, b):
     return np.power(3/(2*np.pi*b*b*N), 3/2)*np.exp(-(3/2)*r2/(N*b*b))
 
 
-@jit(nopython=True)
+#@jit(nopython=True)
 def gaussian_Ploop(a, N, b):
     """Looping probability for two loci on a Gaussian chain N kuhn lengths
     apart, when the Kuhn length is b, and the capture radius is a"""
     Nb2 = N*b*b
-    return spycial.erf(a*np.sqrt(3/2/Nb2)) \
+    return scipy.special.erf(a*np.sqrt(3/2/Nb2)) \
         - a*np.sqrt(6/np.pi/Nb2)/np.exp(3*a*a/2/Nb2)
 
 
