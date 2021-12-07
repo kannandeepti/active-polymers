@@ -91,10 +91,56 @@ def gaussian_correlation(N, length, s0, s0_prime, max):
     #make 1s on diagonal
     for i in range(N):
         C[i, i] = 1.0
+    #make positive definite
+    C = C.T @ C
+    #rescale to be valid correlation matrix
+    C /= np.abs(np.max(C))
     return C
 
+def psd_gaussian_correlation(N, length, A):
+    """ Generate a N x N correlation matrix with elements Ae^(-(s-s')^2/2L^2).
+    Note all elements on each diagonal of the matrix will be the same. """
 
-def run(i, N, L, b, D, filedir, åt=None):
+    if np.abs(A) > 1.0:
+        raise ValueError('Correlation coefficient cannot be > 1 or < -1.')
+    x = np.arange(0, N)
+    y = np.arange(0, N)
+    X, Y = np.meshgrid(x, y, indexing='ij')
+    C = A * np.exp(-(X - Y)**2/(2 * length**2))
+    return C
+
+def run_correlated(i, N, L, b, D, filedir, length=10, 
+                  s0=30, s0_prime=70, max=0.9):
+    """ Run one simulation of a length L chain ith N beads, 
+    Kuhn length b, and array of diffusion coefficients D. Use a Gaussian
+    correlation matrix. """
+
+    file = Path(filedir)/f'tape{i}.csv'
+    try:
+        file.parent.mkdir(parents=True)
+    except:
+        if file.parent.is_dir() is False:
+            # if the parent directory does not exist and mkdir still failed, re-raise an exception
+            raise
+    tmax = 1e5
+    h = 0.01
+    print(f'Simulation time step: {h}')
+    C = gaussian_correlation(N, length, s0, s0_prime, max)
+    #save 100 conformations
+    t_save = np.linspace(0, 1e5, 200 + 1)
+    X = correlated_noise(N, L, b, D, C, h, tmax, t_save)
+    dfs = []
+    for i in range(X.shape[0]):
+        df = pd.DataFrame(X[i, :, :])
+        df['t'] = t_save[i]
+        df['D'] = D #save diffusivities of beads
+        dfs.append(df)
+    df = pd.concat(dfs, ignore_index=True, sort=False)
+    df.set_index(['t'], inplace=True)
+    df.to_csv(file)
+
+def run(i, N, L, b, D, filedir, t=None, confined=False, 
+        Aex=5.0, rx=5.0, ry=5.0, rz=5.0):
     """ Run one simulation of a length L chain with N beads,
     Kuhn length b, and array of diffusion coefficients D."""
     file = Path(filedir)/f'tape{i}.csv'
@@ -109,7 +155,10 @@ def run(i, N, L, b, D, filedir, åt=None):
     print(f'Simulation time step: {t[1] - t[0]}')
     #save 100 conformations
     t_save = np.linspace(0, 1e5, 200 + 1)
-    X = with_srk1(N, L, b, D, t, t_save)
+    if confined:
+        X = jit_confined_srk1(N, L, b, D, Aex, rx, ry, rz, t, t_save)
+    else:
+        X = with_srk1(N, L, b, D, t, t_save)
     dfs = []
     for i in range(X.shape[0]):
         df = pd.DataFrame(X[i, :, :])
@@ -121,29 +170,26 @@ def run(i, N, L, b, D, filedir, åt=None):
     df.to_csv(file)
 
 if __name__ == '__main__':
-    #N = 101
-    #L = 100
-    #b = 1
-    #D = np.tile(1, N)
+    N = 101
+    L = 100
+    b = 1
+    D = np.tile(1, N)
     #define cosine wave of temperature activity with amplitude 5 times equilibrium temperature
     #period of wave is 25, max is 11, min is 1
     #B = 2 * np.pi / 25
-    #D = 0.9 * np.cos(B * np.arange(0, N)) + 1.0
+    #D = 0.9 * np.cos(B * np.arange(0, N)) + 1
     #reduce time step by order of magnitude due to higher diffusivity
     #t = np.linspace(0, 1e5, int(1e8) + 1)
-    """
-    D[int(N//2)] = 10 #one hot bead
-    filedir = Path('csvs/mid_hot_bead')
-    func = partial(run, N=N, L=L, b=b, D=D, filedir=filedir)
+    #D[int(N//2)] = 10 #one hot bead
+    #D[10:30] = 10.0
+    #D[50:80] = 10.0
+    filedir = Path('csvs/Deq1_anticorr30_70')
+    func = partial(run_correlated, N=N, L=L, b=b, D=D, filedir=filedir, max=-0.9)
     tic = time.perf_counter()
-    pool_size = 8
-    N = 64
+    pool_size = 16
+    N = 96
     with Pool(pool_size) as p:
-        result = p.map(func, np.arange(2*N, 3*N))
-    toc = time.perf_counter()
-    """
-    tic = time.perf_counter()
-    X, t_save = test_correlated_noise()
+        result = p.map(func, np.arange(0, N))
     toc = time.perf_counter()
     print(f'Ran simulation in {(toc - tic):0.4f}s')
 
