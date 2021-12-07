@@ -1,6 +1,7 @@
 """ Script to run brownian dynamics simulations of active polymer."""
 import numpy as np
 from rouse import linear_mid_msd, end2end_distance_gauss, gaussian_Ploop
+from correlations import *
 import matplotlib as mpl
 from matplotlib import pyplot as plt
 from matplotlib.colors import LogNorm, Normalize
@@ -161,16 +162,17 @@ def end_to_end_distance_vs_Rmax(X, t_save, b=1, L=100, N=101):
     fig.tight_layout()
     plt.show()
 
-def rouse_msd(X, t_save, b=1, D=1, L=100, N=101):
+def rouse_msd(X, t_save, b=1, D=1, L=100, N=101, theory=True):
     """ Compute MSD of individual beads of polymer averaged over all beads."""
     mean_monomer_msd = np.sum((X[:, :, :] - X[0, :, :])**2, axis=-1).mean(axis=-1)
     mid_monomer_msd = np.sum((X[:, int(N/2) - 1, :] - X[0, int(N/2) - 1, :]) ** 2, axis=-1)
     fig, ax = plt.subplots()
     ax.plot(t_save, mean_monomer_msd, label='simulation, mean')
     ax.plot(t_save, mid_monomer_msd, label='simulation, mid')
-    Nhat = L/b
-    analytical_msd = linear_mid_msd(t_save, b, Nhat, D, num_modes=int(N / 2))
-    ax.plot(t_save, analytical_msd, label='theory')
+    if theory:
+        Nhat = L/b
+        analytical_msd = linear_mid_msd(t_save, b, Nhat, D, num_modes=int(N / 2))
+        ax.plot(t_save, analytical_msd, label='theory')
     ax.set_xlabel('Time')
     ax.set_ylabel('Mean monomer MSD')
     plt.legend()
@@ -236,6 +238,14 @@ def average_R2_vs_time(simdir, b=1, D=1, L=100, N=101, ntraj=16):
     plt.savefig(f'plots/rsquared_vs_time_{simdir.name}.pdf')
     return fig, ax
 
+def plot_correlation(C, name):
+    fig, ax = plt.subplots()
+    sns.heatmap(C, xticklabels=25, yticklabels=25, cmap='viridis', square=True, ax=ax)
+    ax.set_title('Correlation matrix')
+    x.set_xlabel(r'Bead $i$')
+    ax.set_ylabel(r'Bead $j$')
+    plt.savefig(f'plots/correlation_{name}.pdf')
+
 def two_point_msd(simdir, ntraj, N=101, relative=False, squared=False):
     """Compute mean squared distance between two beads on a polymer at
     a particular time point. Plot heatmap"""
@@ -264,14 +274,14 @@ def two_point_msd(simdir, ntraj, N=101, relative=False, squared=False):
     fig, ax = plt.subplots()
     if relative:
         sns.heatmap((average_dist / nreplicates) - (eq_dist / nreplicates), xticklabels=25,
-                    yticklabels=25, cmap='coolwarm', ax=ax)
+                    yticklabels=25, cmap='coolwarm', square=True, ax=ax)
         if squared:
             ax.set_title(r'MSD relative to uniform temperature')
         else:
             ax.set_title('Mean distance relative to uniform temperature')
     else:
         sns.heatmap(average_dist / nreplicates, xticklabels=25, yticklabels=25,
-                    cmap='coolwarm', ax=ax)
+                    cmap='coolwarm', square=True, ax=ax)
         if squared:
             ax.set_title(r'Mean squared distance $\langle\Vert \vec{r}_i(t) - \vec{r}_j(t) \Vert^2\rangle$')
         else:
@@ -318,13 +328,13 @@ def contact_probability(a, simdir, ntraj, N=101, eq_contacts=None):
     fig, ax = plt.subplots()
     contacts = counts / nreplicates
     if eq_contacts is not None:
-        sns.heatmap(contacts - eq_contacts, center=0.0,
+        sns.heatmap(contacts - eq_contacts, center=0.0, square=True,
                     cmap="vlag", xticklabels=25, yticklabels=25, robust=True, ax=ax)
         ax.set_title(r'Contact map relative to equilibrium')
     else:
         contacts[contacts == 0] = 1e-5
         sns.heatmap(contacts, norm=LogNorm(vmin=contacts.min(), vmax=contacts.max()),
-                    cmap="Reds", xticklabels=25, yticklabels=25, robust=True, ax=ax)
+                    cmap="Reds", square=True, xticklabels=25, yticklabels=25, robust=True, ax=ax)
         ax.set_title(r'Contact Map $P(\Vert \vec{r}_i(t) - \vec{r}_j(t) \Vert < a)$')
     ax.set_xlabel(r'Bead $i$')
     ax.set_ylabel(r'Bead $j$')
