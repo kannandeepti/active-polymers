@@ -3,6 +3,7 @@ import numpy as np
 from bd import *
 import pandas as pd
 from pathlib import Path
+from numba import njit
 from multiprocessing import Pool
 from functools import partial
 import time
@@ -99,7 +100,11 @@ def gaussian_correlation(N, length, s0, s0_prime, max):
 
 def psd_gaussian_correlation(N, length, A):
     """ Generate a N x N correlation matrix with elements Ae^(-(s-s')^2/2L^2).
-    Note all elements on each diagonal of the matrix will be the same. """
+    Note all elements on each diagonal of the matrix will be the same.
+
+    PROBLEM: this is not positive definite :( despite this paper saying it should be
+    https://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.822.3231&rep=rep1&type=pdf
+    """
 
     if np.abs(A) > 1.0:
         raise ValueError('Correlation coefficient cannot be > 1 or < -1.')
@@ -108,6 +113,17 @@ def psd_gaussian_correlation(N, length, A):
     X, Y = np.meshgrid(x, y, indexing='ij')
     C = A * np.exp(-(X - Y)**2/(2 * length**2))
     return C
+
+def random_factors_correlation(N, k):
+    """ Generate a random correlation matrix using the random factors method.
+    """
+    if k >= N:
+        raise ValueError('The number of random factors, k, must be < N')
+
+    W = np.random.randn(N, k)
+    S = W @ W.T + np.diag(np.random.rand(N))
+    S = np.diag(1./np.sqrt(np.diag(S))) @ S @ np.diag(1./np.sqrt(np.diag(S)))
+    return S
 
 def run_correlated(i, N, L, b, D, filedir, length=10, 
                   s0=30, s0_prime=70, max=0.9):
@@ -183,6 +199,7 @@ if __name__ == '__main__':
     #D[int(N//2)] = 10 #one hot bead
     #D[10:30] = 10.0
     #D[50:80] = 10.0
+    """
     filedir = Path('csvs/Deq1_anticorr30_70')
     func = partial(run_correlated, N=N, L=L, b=b, D=D, filedir=filedir, max=-0.9)
     tic = time.perf_counter()
@@ -192,4 +209,5 @@ if __name__ == '__main__':
         result = p.map(func, np.arange(0, N))
     toc = time.perf_counter()
     print(f'Ran simulation in {(toc - tic):0.4f}s')
+    """
 
