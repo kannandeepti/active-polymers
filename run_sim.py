@@ -34,10 +34,8 @@ def test_correlated_noise(N=101, L=100, b=1, D=1):
     print(f'Simulation time step: {h}')
     #save 100 conformations
     t_save = np.linspace(0, 1e2, 100 + 1)
-    B = 2 * np.pi / 25
-    D = 0.9 * np.cos(B * np.arange(0, N)) + 1.0
     C = np.eye(N) #correlation matrix of identity
-    X = correlated_noise(N, L, b, Darr, C, h, tmax, t_save)
+    X = correlated_noise_srk2(N, L, b, np.tile(D, N), C, h, tmax, t_save)
     return X, t_save
 
 def test_bd_sim_confined(N=101, L=100, b=1, D=1):

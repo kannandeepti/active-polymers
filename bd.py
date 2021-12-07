@@ -342,6 +342,7 @@ def with_srk1(N, L, b, D, t, t_save=None, Deq=1):
             save_i += 1
     return x
 
+@njit
 def correlated_noise(N, L, b, D, C, h, tmax, t_save, Deq=1):
     """ Add correlation matrix for noise, as opposed to just
     temperature modulations.
@@ -417,6 +418,51 @@ def correlated_noise(N, L, b, D, C, h, tmax, t_save, Deq=1):
     return x
 
 @njit
+def correlated_noise_srk2(N, L, b, D, C, h, tmax, t_save, Deq=1):
+    """ Same as correlated_noise function except with a 2nd order
+    SRK scheme as opposed to the Roberts first order scheme."""
+    rtol = 1e-5
+    # derived parameters
+    L0 = L / (N - 1)  # length per bead
+    bhat = np.sqrt(L0 * b)  # mean squared bond length of discrete gaussian chain
+    Nhat = L / b  # number of Kuhn lengths in chain
+    Dhat = D * N / Nhat  # diffusion coef of a discrete gaussian chain bead
+    Deq = Deq * N / Nhat
+    # set spring constant to be 3D/b^2 where D is the diffusion coefficient of the coldest bead
+    k_over_xi = 3 * Deq / bhat ** 2
+    # initial position, sqrt(3) since generating per-coordinate
+    x0 = bhat / np.sqrt(3) * np.random.randn(N, 3)
+    # for jit, we unroll ``x0 = np.cumsum(x0, axis=0)``
+    for i in range(1, N):
+        x0[i] = x0[i - 1] + x0[i]
+    x = np.zeros(t_save.shape + x0.shape)
+    save_i = 0
+    if 0 == t_save[save_i]:
+        x[0] = x0
+        save_i += 1
+    #standard deviation of noise 2Dh
+    sigma = np.sqrt(2 * Dhat * h)
+    #covariance matrix for noise: diag(std) @ C @ diag(std), i.e. cov(x,y) = corr(x,y)*sigma_x*sigma_y
+    cov = C * np.outer(sigma, sigma)
+    cky = np.linalg.cholesky(cov) #N x N matrix
+    ntimesteps = int(tmax // h) + 1 #including 0th time step
+
+    for i in range(1, ntimesteps):
+        #correlated noise matrix (N x 3)
+        noise = np.dot(cky, np.random.randn(*x0.shape))
+        # force at position a
+        Fa = f_elas_linear_rouse(x0, k_over_xi)
+        x1 = x0 + h * Fa + noise
+        # force at position b
+        noise = np.dot(cky, np.random.randn(*x0.shape))
+        Fb = f_elas_linear_rouse(x1, k_over_xi)
+        x0 = x0 + 0.5 * (Fa + Fb) * h + noise
+        if np.abs(i*h - t_save[save_i]) < rtol * np.abs(t_save[save_i]):
+            x[save_i] = x0
+            save_i += 1
+    return x
+
+@njit
 def f_self_avoidance(x, a, dsq):
     """ Force due to overlap with other monomers via a repulsive LJ potential.
 
@@ -465,7 +511,7 @@ def f_conf_ellipse(x0, Aex, rx, ry, rz):
     return f
 
 @njit
-def f_elas_linear_rouse(x0, k_over_xi, Aex, rx, ry, rz):
+def f_elas_linear_rouse(x0, k_over_xi):
     """Compute spring forces on single, linear rouse polymer."""
     N, _ = x0.shape
     f = np.zeros(x0.shape)
