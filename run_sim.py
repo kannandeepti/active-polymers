@@ -39,6 +39,22 @@ def test_correlated_noise(N=101, L=100, b=1, D=1):
     X = correlated_noise_srk2(N, L, b, np.tile(D, N), C, h, tmax, t_save)
     return X, t_save
 
+def test_identity_correlated_noise(N=101, L=100, b=1, D=1):
+    """ Test Brownian dynamics simulation for a random set of parameters
+    A single simulation of a single chain with dt = 0.01 and 10^5 time steps
+    finished in just 2 minutes.
+    """
+    t = np.linspace(0, 1e2, int(1e4) + 1)
+    h = np.diff(t)[0]
+    tmax = t[-1]
+    print(f'Simulation time step: {h}')
+    #save 100 conformations
+    t_save = np.linspace(0, 1e2, 100 + 1)
+    mat = np.zeros((1, N))
+    rhos = np.zeros(1)
+    X = identity_core_noise_srk2(N, L, b, np.tile(D, N), h, tmax, t_save, mat, rhos)
+    return X, t_save
+
 def test_bd_sim_confined(N=101, L=100, b=1, D=1):
     """ Test Brownian dynamics simulation for a random set of parameters
     A single simulation of a single chain with dt = 0.01 and 10^5 time steps
@@ -127,6 +143,10 @@ if __name__ == '__main__':
     L = 100
     b = 1
     D = np.tile(1, N)
+    tic = time.perf_counter()
+    X, t_save = test_identity_correlated_noise()
+    toc = time.perf_counter()
+    print(f'Ran simulation in {(toc - tic):0.4f}s')
     #define cosine wave of temperature activity with amplitude 5 times equilibrium temperature
     #period of wave is 25, max is 11, min is 1
     #B = 2 * np.pi / 25

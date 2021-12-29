@@ -14,12 +14,12 @@ sns.set()
 params = {'axes.edgecolor': 'black',
                   'axes.facecolor':'white',
                   'axes.grid': False,
-                  'axes.titlesize': 11,
-                  'axes.labelsize': 11,
-                  'legend.fontsize': 9,
-                  'xtick.labelsize': 10,
-                  'ytick.labelsize': 10,
-                  'figure.figsize': [4.7, 3.36],
+                  'axes.titlesize': 24,
+                  'axes.labelsize': 24,
+                  'legend.fontsize': 18,
+                  'xtick.labelsize': 18,
+                  'ytick.labelsize': 18,
+                  'figure.figsize': [5.67, 4.76],
                   'font.family': 'sans-serif',
                   'mathtext.fontset': 'cm',
                   'xtick.bottom':True,
@@ -38,7 +38,6 @@ params = {'axes.edgecolor': 'black',
                   'ytick.minor.right':False,
                   'lines.linewidth':2}
 plt.rcParams.update(params)
-sns.set()
 textwidth = 6.5
 
 """
@@ -238,12 +237,13 @@ def average_R2_vs_time(simdir, b=1, D=1, L=100, N=101, ntraj=16):
     plt.savefig(f'plots/rsquared_vs_time_{simdir.name}.pdf')
     return fig, ax
 
-def plot_correlation(C, name):
+def plot_correlation(C, name, title):
     fig, ax = plt.subplots()
-    sns.heatmap(C, xticklabels=25, yticklabels=25, cmap='viridis', square=True, ax=ax)
-    ax.set_title('Correlation matrix')
-    x.set_xlabel(r'Bead $i$')
+    sns.heatmap(C, xticklabels=25, yticklabels=25, cmap='viridis', square=True, linewidths=0, ax=ax)
+    ax.set_title(f'{title}')
+    ax.set_xlabel(r'Bead $i$')
     ax.set_ylabel(r'Bead $j$')
+    fig.tight_layout()
     plt.savefig(f'plots/correlation_{name}.pdf')
 
 def two_point_msd(simdir, ntraj, N=101, relative=False, squared=False):
