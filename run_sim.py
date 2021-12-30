@@ -108,6 +108,34 @@ def run_correlated(i, N, L, b, D, filedir, length=10,
     df.set_index(['t'], inplace=True)
     df.to_csv(file)
 
+def run_identity_correlated(i, N, L, b, D, filedir, mat, rhos):
+    """ Run one simulation of a length L chain ith N beads, 
+    Kuhn length b, and array of diffusion coefficients D. Use a Gaussian
+    correlation matrix. """
+
+    file = Path(filedir)/f'tape{i}.csv'
+    try:
+        file.parent.mkdir(parents=True)
+    except:
+        if file.parent.is_dir() is False:
+            # if the parent directory does not exist and mkdir still failed, re-raise an exception
+            raise
+    tmax = 1e5
+    h = 0.01
+    print(f'Simulation time step: {h}')
+    #save 100 conformations
+    t_save = np.linspace(0, 1e5, 200 + 1)
+    X = identity_core_noise_srk2(N, L, b, D, h, tmax, t_save, mat, rhos)
+    dfs = []
+    for i in range(X.shape[0]):
+        df = pd.DataFrame(X[i, :, :])
+        df['t'] = t_save[i]
+        df['D'] = D #save diffusivities of beads
+        dfs.append(df)
+    df = pd.concat(dfs, ignore_index=True, sort=False)
+    df.set_index(['t'], inplace=True)
+    df.to_csv(file)
+
 def run(i, N, L, b, D, filedir, t=None, confined=False, 
         Aex=5.0, rx=5.0, ry=5.0, rz=5.0):
     """ Run one simulation of a length L chain with N beads,
@@ -144,9 +172,11 @@ if __name__ == '__main__':
     b = 1
     D = np.tile(1, N)
     tic = time.perf_counter()
+    """
     X, t_save = test_identity_correlated_noise()
     toc = time.perf_counter()
     print(f'Ran simulation in {(toc - tic):0.4f}s')
+    """
     #define cosine wave of temperature activity with amplitude 5 times equilibrium temperature
     #period of wave is 25, max is 11, min is 1
     #B = 2 * np.pi / 25
@@ -156,9 +186,20 @@ if __name__ == '__main__':
     #D[int(N//2)] = 10 #one hot bead
     #D[10:30] = 10.0
     #D[50:80] = 10.0
-    """
-    filedir = Path('csvs/Deq1_anticorr30_70')
-    func = partial(run_correlated, N=N, L=L, b=b, D=D, filedir=filedir, max=-0.9)
+    #alternating hot and cold regions
+    D[0:33] = 5.0
+    D[66:] = 5.0
+    mat = np.zeros((1, N))
+    mat[0, 0:11] = 1.0
+    mat[0, 22:33] = -1.0
+    mat[0, 33:44] = 1.0
+    mat[0, 55:66] = -1.0
+    mat[0, 66:77] = 1.0
+    mat[0, 88:] = - 1.0 
+    rhos = np.array([0.5])
+    filedir = Path('csvs/1feat_rho.5_altT_alt0')
+    func = partial(run_identity_correlated, N=N, L=L, b=b, D=D, filedir=filedir,
+                  mat=mat, rhos=rhos)
     tic = time.perf_counter()
     pool_size = 16
     N = 96
@@ -166,5 +207,4 @@ if __name__ == '__main__':
         result = p.map(func, np.arange(0, N))
     toc = time.perf_counter()
     print(f'Ran simulation in {(toc - tic):0.4f}s')
-    """
 
