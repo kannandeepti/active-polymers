@@ -15,6 +15,7 @@ params = {'axes.edgecolor': 'black',
                   'axes.facecolor':'white',
                   'axes.grid': False,
                   'axes.titlesize': 24,
+                  'axes.titlepad' : 10,
                   'axes.labelsize': 24,
                   'legend.fontsize': 18,
                   'xtick.labelsize': 18,
@@ -246,6 +247,19 @@ def plot_correlation(C, name, title):
     fig.tight_layout()
     plt.savefig(f'plots/correlation_{name}.pdf')
 
+def plot_cov_from_corr(mat, rhos, D, name, title, N=101, L=100, b=1, **kwargs):
+    Nhat = L / b
+    Dhat = D * N / Nhat
+    stds = np.sqrt(Dhat)
+    cov = covariance_from_noise(mat, rhos, stds, niter=100000)
+    fig, ax = plt.subplots()
+    sns.heatmap(cov, xticklabels=25, yticklabels=25, cmap='viridis', square=True, linewidths=0, ax=ax)
+    ax.set_title(f'{title}')
+    ax.set_xlabel(r'Bead $i$')
+    ax.set_ylabel(r'Bead $j$')
+    fig.tight_layout()
+    plt.savefig(f'plots/idcov_{name}.pdf')
+
 def two_point_msd(simdir, ntraj, N=101, relative=False, squared=False):
     """Compute mean squared distance between two beads on a polymer at
     a particular time point. Plot heatmap"""
@@ -283,9 +297,9 @@ def two_point_msd(simdir, ntraj, N=101, relative=False, squared=False):
         sns.heatmap(average_dist / nreplicates, xticklabels=25, yticklabels=25,
                     cmap='coolwarm', square=True, ax=ax)
         if squared:
-            ax.set_title(r'Mean squared distance $\langle\Vert \vec{r}_i(t) - \vec{r}_j(t) \Vert^2\rangle$')
+            ax.set_title(r'Mean squared distance $\langle\Vert \vec{r}_i - \vec{r}_j \Vert^2\rangle$')
         else:
-            ax.set_title(r'Mean distance $\langle\Vert \vec{r}_i(t) - \vec{r}_j(t) \Vert\rangle$')
+            ax.set_title(r'Mean distance $\langle\Vert \vec{r}_i - \vec{r}_j \Vert\rangle$')
     ax.set_xlabel(r'Bead $i$')
     ax.set_ylabel(r'Bead $j$')
     fig.tight_layout()
@@ -540,4 +554,49 @@ def draw_power_law_triangle(alpha, x0, width, orientation, base=10,
     else:
         raise ValueError(r"Need $\alpha\in\mathbb{R} and orientation\in{'up', 'down'}")
     return corner
+
+def analyze_idcorrs(N=101):
+    """ Generate two-point MSD plots, contact maps, plots of covariance matrices for the
+    simulations run using the procedure that generates correlations by assigning identities to
+    monomers."""
+    rhos = np.array([0.5])
+    #simulation `1feat_rho.5_sameT`
+    D = np.tile(1.0, N)
+    mat = np.zeros((1, N))
+    mat[0, 0:25] = 1.0
+    mat[0, 50:75] = -1.0
+    plot_cov_from_corr(mat, rhos, D, '1feat_rho.5_sameT', 'Covariance matrix')
+    Rgs, avedist, eqdist = two_point_msd('csvs/1feat_rho.5_sameT', ntraj=96)
+    counts, Ploop, sdistances, nreplicates = contact_probability(1.0, 'csvs/1feat_rho.5_sameT', 96)
+
+    #simulation `1feat_rho.5_altT`
+    D = np.tile(1.0, N)
+    D[0:20] = 5.0
+    D[40:60] = 5.0
+    D[80:] = 5.0
+    mat = np.zeros((1, N))
+    mat[0, 40:60] = 1.0
+    mat[0, 80:] = 1.0
+    plot_cov_from_corr(mat, rhos, D, '1feat_rho.5_altT', 'Covariance matrix')
+    Rgs, avedist, eqdist = two_point_msd('csvs/1feat_rho.5_altT', ntraj=96)
+    counts, Ploop, sdistances, nreplicates = contact_probability(1.0, 'csvs/1feat_rho.5_altT', 96)
+
+    #simulation `1feat_rho.5_altT_alt0'
+    D = np.tile(1.0, N)
+    D[0:33] = 5.0
+    D[66:] = 5.0
+    mat = np.zeros((1, N))
+    mat[0, 0:11] = 1.0
+    mat[0, 22:33] = -1.0
+    mat[0, 33:44] = 1.0
+    mat[0, 55:66] = -1.0
+    mat[0, 66:77] = 1.0
+    mat[0, 88:] = -1.0
+    plot_cov_from_corr(mat, rhos, D, '1feat_rho.5_altT_alt0', 'Covariance matrix')
+    Rgs, avedist, eqdist = two_point_msd('csvs/1feat_rho.5_altT_alt0', ntraj=96)
+    counts, Ploop, sdistances, nreplicates = contact_probability(1.0, 'csvs/1feat_rho.5_altT_alt0',
+                                                                 96)
+
+
+
 

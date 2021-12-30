@@ -463,7 +463,8 @@ def correlated_noise_srk2(N, L, b, D, C, h, tmax, t_save, Deq=1):
     return x
 
 @njit
-def identity_core_noise_srk2(N, L, b, D, h, tmax, t_save, mat, rhos, Deq=1):
+def identity_core_noise_srk2(N, L, b, D, h, tmax, t_save,
+                             Aex, rx, ry, rz, mat, rhos, Deq=1):
     """ Generate correlations via identity matrix, rhos. """
     rtol = 1e-5
     # derived parameters
@@ -474,11 +475,8 @@ def identity_core_noise_srk2(N, L, b, D, h, tmax, t_save, mat, rhos, Deq=1):
     Deq = Deq * N / Nhat
     # set spring constant to be 3D/b^2 where D is the diffusion coefficient of the coldest bead
     k_over_xi = 3 * Deq / bhat ** 2
-    # initial position, sqrt(3) since generating per-coordinate
-    x0 = bhat / np.sqrt(3) * np.random.randn(N, 3)
-    # for jit, we unroll ``x0 = np.cumsum(x0, axis=0)``
-    for i in range(1, N):
-        x0[i] = x0[i - 1] + x0[i]
+    #initial position
+    x0 = init_conf(N, bhat, rx, ry, rz)
     x = np.zeros(t_save.shape + x0.shape)
     save_i = 0
     if 0 == t_save[save_i]:
@@ -492,11 +490,11 @@ def identity_core_noise_srk2(N, L, b, D, h, tmax, t_save, mat, rhos, Deq=1):
         #correlated noise matrix (N x 3)
         noise = generate_correlations_vars(mat, rhos, sigma)
         # force at position a
-        Fa = f_elas_linear_rouse(x0, k_over_xi)
+        Fa = f_conf_spring(x0, k_over_xi, Aex, rx, ry, rz)
         x1 = x0 + h * Fa + noise
         # force at position b
         noise = generate_correlations_vars(mat, rhos, sigma)
-        Fb = f_elas_linear_rouse(x1, k_over_xi)
+        Fb = f_conf_spring(x0, k_over_xi, Aex, rx, ry, rz)
         x0 = x0 + 0.5 * (Fa + Fb) * h + noise
         if np.abs(i*h - t_save[save_i]) < rtol * np.abs(t_save[save_i]):
             x[save_i] = x0
@@ -564,6 +562,28 @@ def f_elas_linear_rouse(x0, k_over_xi):
     return f
 
 @njit
+def f_conf_spring(x0, k_over_xi, Aex, rx, ry, rz):
+    """ Compute forces due to springs, and confinement
+        all in the same for loop."""
+    N, _ = x0.shape
+    f = np.zeros(x0.shape)
+    for i in range(N):
+        # SPRING FORCES
+        if i >= 1:
+            for n in range(3):
+                f[i, n] += -k_over_xi * (x0[i, n] - x0[i - 1, n])
+                f[i - 1, n] += -k_over_xi * (x0[i - 1, n] - x0[i, n])
+        # CONFINEMENT
+        conf = x0[i, 0] ** 2 / rx ** 2 + x0[i, 1] ** 2 / ry ** 2 + x0[i, 2] ** 2 / rz ** 2
+        if conf > 1:
+            conf_u = np.array([
+                -x0[i, 0] / rx ** 2, -x0[i, 1] / ry ** 2, -x0[i, 2] / rz ** 2
+            ])
+            conf_u = conf_u / np.linalg.norm(conf_u)
+            f[i] += Aex * conf_u * np.power(np.sqrt(conf) - 1, 3)
+    return f
+
+@njit
 def f_combined(x0, k_over_xi, Aex, rx, ry, rz, a, dsq):
     """ Compute forces due to springs, confinement, and self-avoidance
     all in the same for loop."""
@@ -595,6 +615,19 @@ def f_combined(x0, k_over_xi, Aex, rx, ry, rz, a, dsq):
                 f[i] -= fji * unit_rij # force on monomer i due to overlap with monomer j
                 f[j] += fji * unit_rij # equal and opposite force on monomer j
     return f
+
+@njit
+def init_conf(N, bhat, rx, ry, rz):
+    """ Initialize beads to be in a confinement. """
+    # initial position
+    x0 = np.zeros((N, 3))
+    # x0 = np.cumsum(x0, axis=0)
+    for i in range(1, N):
+        # 1/sqrt(3) since generating per-coordinate
+        x0[i] = x0[i - 1] + bhat / np.sqrt(3) * np.random.randn(3)
+        while x0[i, 0] ** 2 / rx ** 2 + x0[i, 1] ** 2 / ry ** 2 + x0[i, 2] ** 2 / rz ** 2 > 1:
+            x0[i] = x0[i - 1] + bhat / np.sqrt(3) * np.random.randn(3)
+    return x0
 
 @njit
 def init_conf_avoid(N, bhat, rx, ry, rz, dsq):
