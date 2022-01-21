@@ -4,8 +4,12 @@ from rouse import linear_mid_msd, end2end_distance_gauss, gaussian_Ploop
 from correlations import *
 import matplotlib as mpl
 from matplotlib import pyplot as plt
+import matplotlib.colors as colors
 from matplotlib.colors import LogNorm, Normalize
+from mpl_toolkits.axes_grid1 import make_axes_locatable, ImageGrid
 import seaborn as sns
+import cmasher as cmr
+
 import pandas as pd
 from pathlib import Path
 from scipy.spatial.distance import pdist, squareform
@@ -14,14 +18,16 @@ sns.set()
 params = {'axes.edgecolor': 'black',
                   'axes.facecolor':'white',
                   'axes.grid': False,
-                  'axes.titlesize': 24,
-                  'axes.titlepad' : 10,
-                  'axes.labelsize': 24,
-                  'legend.fontsize': 18,
+                  'axes.titlesize': 18,
+                  'axes.titlepad' : 12,
+                  'axes.labelsize': 18,
+                  'legend.fontsize': 24,
+                  'text.usetex': True,
                   'xtick.labelsize': 18,
                   'ytick.labelsize': 18,
                   'figure.figsize': [5.67, 4.76],
-                  'font.family': 'sans-serif',
+                  'font.family': 'serif',
+                  'font.serif' : ["Computer Modern Roman"],
                   'mathtext.fontset': 'cm',
                   'xtick.bottom':True,
                   'xtick.top': False,
@@ -29,17 +35,22 @@ params = {'axes.edgecolor': 'black',
                   'xtick.major.pad': 3,
                   'xtick.major.size': 4,
                   'xtick.minor.bottom': False,
-                  'xtick.major.width': 0.2,
+                  'xtick.major.width': 1.0,
                   'ytick.left':True,
                   'ytick.right':False,
                   'ytick.direction':'out',
                   'ytick.major.pad': 3,
                   'ytick.major.size': 4,
-                  'ytick.major.width': 0.3,
+                  'ytick.major.width': 1.0,
                   'ytick.minor.right':False,
                   'lines.linewidth':2}
 plt.rcParams.update(params)
 textwidth = 6.5
+
+cmap_relative = cmr.iceburn
+cmap_distance = 'magma'
+cmap_temps = 'coolwarm'
+cmap_contacts = "Reds"
 
 """
 b = 30.0 * 10**(-9) #Kuhn length of approximately 30 nm
@@ -113,14 +124,11 @@ def convert_to_xyz(simdir, tape, L=100, b=1, **kwargs):
     write the last frame to an XYZ file, specifying temperature, etc."""
     simdir = Path(simdir)
     simname = simdir.name
+    df = pd.read_csv(simdir / f'tape{tape}.csv')
+    # extract temperatures
+    D = np.array(df[df['t'] == 0.0].D)
     X, t_save = process_sim(Path(simdir / f'tape{tape}.csv'))
     nframes, N, dim = X.shape
-    D = np.tile(1, N)
-    if simname == 'mid_hot_bead':
-        D[int(N // 2)] = 10
-    if simname[0:6] == 'cosine':
-        B = 2 * np.pi / 25
-        D = 0.9 * np.cos(B * np.arange(0, N)) + 1
     to_XYZ(X, D, simdir, f'tape{tape}_frame{nframes-1}', **kwargs)
 
 def end_to_end_distance_squared_vs_time(X, t_save, b=1, L=100):
@@ -247,20 +255,25 @@ def plot_correlation(C, name, title):
     fig.tight_layout()
     plt.savefig(f'plots/correlation_{name}.pdf')
 
-def plot_cov_from_corr(mat, rhos, D, name, title, N=101, L=100, b=1, **kwargs):
+def plot_cov_from_corr(mat, rhos, D, name, title=r'$\langle \eta_i \eta_j \rangle$', N=101, L=100,
+                       b=1):
     Nhat = L / b
     Dhat = D * N / Nhat
-    stds = np.sqrt(Dhat)
+    stds = np.sqrt(2 * Dhat)
     cov = covariance_from_noise(mat, rhos, stds, niter=100000)
     fig, ax = plt.subplots()
-    sns.heatmap(cov, xticklabels=25, yticklabels=25, cmap='viridis', square=True, linewidths=0, ax=ax)
-    ax.set_title(f'{title}')
+    res = sns.heatmap(cov, xticklabels=25, yticklabels=25, cmap='viridis', square=True,
+                     linewidths=0, ax=ax)
+    # make frame visible
+    for _, spine in res.spines.items():
+        spine.set_visible(True)
+    ax.set_title(title)
     ax.set_xlabel(r'Bead $i$')
     ax.set_ylabel(r'Bead $j$')
     fig.tight_layout()
     plt.savefig(f'plots/idcov_{name}.pdf')
 
-def two_point_msd(simdir, ntraj, N=101, relative=False, squared=False):
+def two_point_msd(simdir, ntraj, N=101, relative=None, squared=False):
     """Compute mean squared distance between two beads on a polymer at
     a particular time point. Plot heatmap"""
     #TODO: average over structures and average over time
@@ -276,45 +289,193 @@ def two_point_msd(simdir, ntraj, N=101, relative=False, squared=False):
         X, t_save = process_sim(simdir / f'tape{j}.csv')
         ntimes, _, _ = X.shape
         nreplicates = ntraj * len(range(int(ntimes // 2), ntimes, 5))
-        Xeq, _ = process_sim(Path('csvs/bdeq1') / f'tape{j}.csv')
+        if relative:
+            Xeq, _ = process_sim(Path(relative) / f'tape{j}.csv')
         for i in range(int(ntimes//2), ntimes, 5):
             #for temperature modulations
             dist = pdist(X[i, :, :], metric=metric)
             Y = squareform(dist)
             average_dist += Y
             #for equilibrium case
-            dist = pdist(Xeq[i, :, :], metric=metric)
-            eq_dist += squareform(dist)
+            if relative:
+                dist = pdist(Xeq[i, :, :], metric=metric)
+                eq_dist += squareform(dist)
+
+    average_dist = average_dist / nreplicates
+    if squared:
+        Rg_squared = np.sum(average_dist) / (2 * N ** 2)
+    else:
+        Rg_squared = np.sum(average_dist ** 2) / (2 * N ** 2)
+
+    if relative:
+        eq_dist = eq_dist / nreplicates
+        return Rg_squared, average_dist, eq_dist
+
+    return Rg_squared, average_dist
+
+def plot_msd_map(dist, simdir, relative=False, squared=False):
+    """ Plot heatmap where entry (i, j) is the mean distance between beads i and j. This version
+    does not include a bar showing the temperature of the beads or anything."""
+    simdir = Path(simdir)
     fig, ax = plt.subplots()
     if relative:
-        sns.heatmap((average_dist / nreplicates) - (eq_dist / nreplicates), xticklabels=25,
-                    yticklabels=25, cmap='coolwarm', square=True, ax=ax)
+        res = sns.heatmap(dist, xticklabels=25,
+                    yticklabels=25, cmap=cmr.iceburn, center=0.0, square=True, ax=ax)
         if squared:
             ax.set_title(r'MSD relative to uniform temperature')
         else:
-            ax.set_title('Mean distance relative to uniform temperature')
+            ax.set_title(r'$\langle r_{ij} \rangle  - \langle r_{ij} \rangle_{eq}$')
     else:
-        sns.heatmap(average_dist / nreplicates, xticklabels=25, yticklabels=25,
-                    cmap='coolwarm', square=True, ax=ax)
+        res = sns.heatmap(dist, xticklabels=25, yticklabels=25,
+                    cmap='magma', square=True, ax=ax)
         if squared:
             ax.set_title(r'Mean squared distance $\langle\Vert \vec{r}_i - \vec{r}_j \Vert^2\rangle$')
         else:
             ax.set_title(r'Mean distance $\langle\Vert \vec{r}_i - \vec{r}_j \Vert\rangle$')
     ax.set_xlabel(r'Bead $i$')
     ax.set_ylabel(r'Bead $j$')
+    # make frame visible
+    for _, spine in res.spines.items():
+        spine.set_visible(True)
     fig.tight_layout()
     if relative:
         plt.savefig(f'plots/two_point_msd_{simdir.name}_relative.pdf')
     else:
         plt.savefig(f'plots/two_point_msd_{simdir.name}.pdf')
 
-    average_dist = average_dist / nreplicates
-    eq_dist = eq_dist / nreplicates
-    if squared:
-        Rg_squared = np.sum(average_dist) / (2 * N ** 2)
+def heatmap_temps(mat=None, D=None, width=10, **kwargs):
+    """ Test heatmap that contains colorbar, and 2 bars on bottom and left specifying
+    temperatures of the beads. BUGGY. """
+    if mat is None:
+        mat = np.random.randn((101, 101))
+    if D is None:
+        D = np.random.rand(101)
+    D = 0.25 * np.ones((width, 101))
+    D[:, 30:50] = 1.75
+    D[:, 80:] = 1.75
+    fig = plt.figure()
+    grid = ImageGrid(fig, 111,  # similar to subplot(111)
+                     nrows_ncols=(2, 3),
+                     axes_pad=0.1,
+                     )
+    #make bottom left axis disappear
+    grid[3].axis('off')
+    grid[5].axis('off')
+    grid[4].set_xticks([0, 25, 50, 75, 100])
+    grid[0].set_yticks([0, 25, 50, 75, 100])
+    im = grid[1].imshow(mat, cmap='coolwarm', **kwargs)
+    grid[4].imshow(D, cmap='coolwarm', vmin=1.0)
+    grid[0].imshow(D.T, cmap='coolwarm', vmin=1.0)
+    plt.colorbar(im, cax=grid[2])
+    #divider = make_axes_locatable(grid[2])
+    #cax = divider.append_axes("right", size="5%", pad=0.05)
+    #plt.colorbar(im, cax=cax)
+    """
+    ax = plt.subplot(111)
+    divider = make_axes_locatable(ax)
+    ax_bottom = divider.append_axes("bottom", size=f"{width/101}%", pad=0.1, sharex=ax)
+    ax_left = divider.append_axes("left", size=f"{width/101}%", pad=0.1, sharey=ax)
+
+    res = sns.heatmap(mat, xticklabels=25, yticklabels=25,
+                cmap='magma', square=True, ax=ax, **kwargs)
+    ax_bottom.imshow(D, cmap='coolwarm', vmin=1.0)
+    #ax_bottom.set_xticks([0, 25, 50, 75, 100])
+    #ax_left.imshow(D.T, cmap='coolwarm', vmin=1.0)
+    #ax_left.set_yticks([0, 25, 50, 75, 100])
+
+    #temps = sns.heatmap(D, cbar=False, xticklabels=False, yticklabels=False, ax=ax_left,
+    #                    cmap='coolwarm', vmin=1.0)
+    #temps = sns.heatmap(D, cbar=False, xticklabels=False, yticklabels=False, ax=ax_bottom,
+    #                    cmap='coolwarm', vmin=1.0)
+    """
+    # make frame visible
+    #for _, spine in res.spines.items():
+    #    spine.set_visible(True)
+
+    grid[1].set_title(r'Mean distance $\langle\Vert \vec{r}_i - \vec{r}_j \Vert\rangle$')
+    grid[4].set_xlabel(r'Bead $i$')
+    grid[0].set_ylabel(r'Bead $j$')
+    fig.tight_layout()
+    plt.show()
+
+def heatmap_divider(mat, temps, simname, relative=False, width=5, **kwargs):
+    """ Tested and this works!!!! """
+    if mat is None:
+        mat = np.random.randn((101, 101))
+
+    D = np.ones((width, 101))
+    for i in range(width):
+        D[i, :] = temps
+    fig = plt.figure()
+    ax = plt.subplot(111)
+    divider = make_axes_locatable(ax)
+    ax_bottom = divider.append_axes("bottom", size=f"{width}%", pad=0.0)
+    ax_left = divider.append_axes("left", size=f"{width}%", pad=0.0)
+    cax = divider.append_axes("right", size=f"{width}%", pad=0.1)
+    ax_bottom.set_xticks([0, 25, 50, 75, 100])
+    ax_bottom.set_yticks([])
+    ax_left.set_yticks([0, 25, 50, 75, 100])
+    ax_left.set_xticks([])
+    ax.set_xticks([])
+    ax.set_yticks([])
+    if relative:
+        im = ax.imshow(mat, norm=colors.CenteredNorm(), cmap=cmap_relative)
     else:
-        Rg_squared = np.sum(average_dist ** 2) / (2 * N ** 2)
-    return Rg_squared, average_dist, eq_dist
+        im = ax.imshow(mat, cmap=cmap_distance, **kwargs)
+    ax_bottom.imshow(D, cmap='coolwarm', vmin=0.25, vmax=1.75)
+    ax_left.imshow(D.T, cmap='coolwarm', vmin=0.25, vmax=1.75)
+    fig.colorbar(im, cax=cax)
+    if relative:
+        ax.set_title(r'$\langle r_{ij} \rangle  - \langle r_{ij} \rangle_{eq}$')
+        #ax.set_title(r'Relative change in $\langle r_{ij} \rangle$')
+    else:
+        ax.set_title(r'Mean distance $\langle r_{ij} \rangle$')
+    ax_bottom.set_xlabel(r'Bead $i$')
+    ax_left.set_ylabel(r'Bead $j$')
+    fig.tight_layout()
+    if relative:
+        plt.savefig(f'plots/two_point_msd_{simname}_relative.pdf')
+    else:
+        plt.savefig(f'plots/two_point_msd_{simname}.pdf')
+
+def mdmap_abs_rel(dist, eqdist, temps, simname, relative=False, width=5, **kwargs):
+    """ Tested and this works!!!! """
+    ind = np.diag_indices(dist.shape[0])
+    dist[ind] = 1.0
+    eqdist[ind] = 1.0
+    rel_dist = (dist - eqdist)/eqdist * 100.0
+    half_rel = np.triu(rel_dist, k=0)
+    half_abs = np.tril(dist, k=1)
+    D = np.ones((width, 101))
+    for i in range(width):
+        D[i, :] = temps
+    fig = plt.figure()
+    ax = plt.subplot(111)
+    divider = make_axes_locatable(ax)
+    ax_bottom = divider.append_axes("bottom", size=f"{width}%", pad=0.0)
+    ax_left = divider.append_axes("left", size=f"{width}%", pad=0.0)
+    cax = divider.append_axes("right", size=f"{width}%", pad=0.1)
+    cax2 = divider.append_axes("top", size=f"{width}%", pad=0.1)
+    ax_bottom.set_xticks([0, 25, 50, 75, 100])
+    ax_bottom.set_yticks([])
+    ax_left.set_yticks([0, 25, 50, 75, 100])
+    ax_left.set_xticks([])
+    ax.set_xticks([])
+    ax.set_yticks([])
+    im2 = ax.imshow(rel_dist[::-1, :], norm=colors.CenteredNorm(), cmap=cmap_relative, **kwargs)
+    im = ax.imshow(dist[::-1, :], cmap=cmap_distance, **kwargs)
+    ax_bottom.imshow(D, cmap='coolwarm', vmin=D.min(), vmax=D.max())
+    ax_left.imshow(D.T[::-1, :], cmap='coolwarm', vmin=D.min(), vmax=D.max())
+    cbar = fig.colorbar(im, cax=cax, label=r'MSD $\langle \Delta r^2_{ij} \rangle$')
+    cbar2 = fig.colorbar(im2, cax=cax2, orientation='horizontal', ticks=[-25, 0, 25])
+    cax2.xaxis.set_ticks_position('top')
+    cbar2.set_ticklabels(['-25\%', '', '25\%'])
+    #ax.set_title(r'$\langle r_{ij} \rangle  - \langle r_{ij} \rangle_{eq}$')
+    cax2.set_title('relative change in MSD')
+    ax_bottom.set_xlabel(r'Bead $i$')
+    ax_left.set_ylabel(r'Bead $j$')
+    fig.tight_layout()
+    plt.savefig(f'plots/two_point_msd_{simname}_rel_front.pdf')
 
 def contact_probability(a, simdir, ntraj, N=101, eq_contacts=None):
     """Compute mean squared distance between two beads on a polymer at
@@ -338,22 +499,59 @@ def contact_probability(a, simdir, ntraj, N=101, eq_contacts=None):
             Y = squareform(dist)
             counts += (Y < a)
             average_dist += Y
+    contacts = counts / nreplicates
+    return counts, contacts
+
+def plot_contact_map(contacts, eq_contacts = None):
     #Plot contact map (each entry is probability of looping within radius a)
     fig, ax = plt.subplots()
-    contacts = counts / nreplicates
     if eq_contacts is not None:
-        sns.heatmap(contacts - eq_contacts, center=0.0, square=True,
+        res = sns.heatmap(contacts - eq_contacts, center=0.0, square=True,
                     cmap="vlag", xticklabels=25, yticklabels=25, robust=True, ax=ax)
         ax.set_title(r'Contact map relative to equilibrium')
     else:
         contacts[contacts == 0] = 1e-5
-        sns.heatmap(contacts, norm=LogNorm(vmin=contacts.min(), vmax=contacts.max()),
+        lognorm = LogNorm(vmin=contacts.min(), vmax=contacts.max())
+        res = sns.heatmap(contacts, norm=lognorm,
                     cmap="Reds", square=True, xticklabels=25, yticklabels=25, robust=True, ax=ax)
-        ax.set_title(r'Contact Map $P(\Vert \vec{r}_i(t) - \vec{r}_j(t) \Vert < a)$')
+        ax.set_title(r'Contact Map $P(\Vert \vec{r}_i - \vec{r}_j \Vert < a)$')
     ax.set_xlabel(r'Bead $i$')
     ax.set_ylabel(r'Bead $j$')
+    # make frame visible
+    for _, spine in res.spines.items():
+        spine.set_visible(True)
     fig.tight_layout()
     plt.savefig(f'plots/contact_map_{simdir.name}.pdf')
+
+def plot_contact_map_temps(contacts, temps, simname, width=5, **kwargs):
+    contacts[contacts == 0] = 1e-5
+    lognorm = LogNorm(vmin=contacts.min(), vmax=contacts.max())
+    D = np.ones((width, 101))
+    for i in range(width):
+        D[i, :] = temps
+    fig = plt.figure()
+    ax = plt.subplot(111)
+    divider = make_axes_locatable(ax)
+    ax_bottom = divider.append_axes("bottom", size=f"{width}%", pad=0.0)
+    ax_left = divider.append_axes("left", size=f"{width}%", pad=0.0)
+    cax = divider.append_axes("right", size=f"{width}%", pad=0.1)
+    ax_bottom.set_xticks([0, 25, 50, 75, 100])
+    ax_bottom.set_yticks([])
+    ax_left.set_yticks([0, 25, 50, 75, 100])
+    ax_left.set_xticks([])
+    ax.set_xticks([])
+    ax.set_yticks([])
+    im = ax.imshow(contacts, norm=lognorm, cmap=cmap_contacts, **kwargs)
+    ax_bottom.imshow(D, cmap='coolwarm', vmin=0.25, vmax=1.75)
+    ax_left.imshow(D.T, cmap='coolwarm', vmin=0.25, vmax=1.75)
+    fig.colorbar(im, cax=cax)
+    ax.set_title(r'Contact Map $P(\Vert \vec{r}_i - \vec{r}_j \Vert < a)$')
+    ax_bottom.set_xlabel(r'Bead $i$')
+    ax_left.set_ylabel(r'Bead $j$')
+    fig.tight_layout()
+    plt.savefig(f'plots/contact_map_{simname}_temps.pdf')
+
+def compute_ploop(counts, nreplicates):
     #To compute histogram as a function of s, distance along chain, sum over diagonals
     sdistances = np.arange(0.0, N)
     Ploop = np.zeros_like(sdistances)
@@ -369,7 +567,7 @@ def contact_probability(a, simdir, ntraj, N=101, eq_contacts=None):
     p_of_s[1:] *= 2
     normalization = nreplicates * p_of_s
     Ploop = Ploop / normalization
-    return counts, Ploop, sdistances, nreplicates
+    return Ploop, sdistances, nreplicates
 
 def plot_ploop(sdistances, Ploop, nreplicates, descriptor, a=1, b=1):
     #sdistances is anyway in units of kuhn lengths
@@ -382,33 +580,28 @@ def plot_ploop(sdistances, Ploop, nreplicates, descriptor, a=1, b=1):
     ax.text(12.0, 0.07, r'$s^{-3/2}$')
     plt.yscale('log')
     plt.xscale('log')
-    ax.set_xlabel('Distance along chain (s)')
+    ax.set_xlabel('Loop size')
     ax.set_ylabel(f'Looping probability')
-    ax.set_title(f'Looping probability within contact radius a={a}')
     plt.legend()
     fig.tight_layout()
     plt.savefig(f'plots/ploop_{descriptor}.pdf')
 
-def plot_msd_from_center(N=101):
+def plot_msd_from_center(eqdist, step_dist, conf_step_dist, N=101):
     """ For all three simulation replicates, plot the MSD from the center
     bead in the chain."""
-    Rgs_cosine, cosine_dist, eq_dist = two_point_msd('csvs/cosine1', 96)
-    Rgs_eq = np.sum(eq_dist) / (2 * N ** 2)
-    print(f'Radius of gyration (cosine): {Rgs_cosine}')
-    print(f'Radius of gyration (eq): {Rgs_eq}')
-    Rgs_midhot, mid_dist, _ = two_point_msd('csvs/mid_hot_bead', 96)
-    Rgs_midhot1, mid1_dist, _ = two_point_msd('csvs/mid_hot_bead1.9', 96)
-    print(f'Radius of gyration (midhot): {Rgs_midhot}')
+    #_, eqdist = two_point_msd('csvs/bdeq1', 96)
+    #_, step_dist = two_point_msd('csvs/step_7x', 96)
+    #_, conf_step_dist = two_point_msd('csvs/conf_step_7x', 96)
     fig, ax = plt.subplots()
-    ax.plot(np.arange(50, N), eq_dist[int(N / 2), int(N / 2):], label=r'$T_{\rm eq}$')
-    ax.plot(np.arange(50, N), cosine_dist[int(N / 2), int(N / 2):], label=r'$1.9 T_{\rm eq}$ (cosine)')
-    ax.plot(np.arange(50, N), mid1_dist[int(N / 2), int(N / 2):], label=r'$1.9 T_{\rm eq}$ (single hot bead)')
-    ax.plot(np.arange(50, N), mid_dist[int(N / 2), int(N / 2):], label=r'$10 T_{\rm eq}$ (single hot bead)')
+    ax.plot(np.arange(50, N), eqdist[int(N / 2), int(N / 2):], label=r'$T_{\rm eq}$')
+    ax.plot(np.arange(50, N), step_dist[int(N / 2), int(N / 2):], label=r'$[0.25 - 1.75]T_{\rm eq}$')
+    ax.plot(np.arange(50, N), conf_step_dist[int(N / 2), int(N / 2):], label=r'$[0.25 - 1.75]T_{\rm eq}$, confined')
     ax.legend()
-    ax.set_xlabel('Beads to the right of center (i)')
-    ax.set_ylabel('Mean distance')
+    ax.set_xlabel('Beads $i > 50$')
+    ax.set_ylabel(r'$\langle \Vert \vec{r}_i - \vec{r}_{50} \Vert \rangle$')
+    ax.set_title('Distance from center')
     fig.tight_layout()
-    plt.savefig(f'plots/msd_from_center_allsims.pdf')
+    plt.savefig(f'plots/msd_from_center_step.pdf')
 
 def radius_of_gyration(simdir, ntraj=96):
     """ Radius of gyration is defined as the mean distance of all beads to center of mass."""
@@ -449,6 +642,39 @@ def distance_from_com(simdir, ntraj=96, N=101):
     fig.tight_layout()
     plt.savefig('plots/radial_distribution_cosine_conf.pdf')
     return hot_bead_distances, cold_bead_distances
+
+def step_radial_distribution(sim='conf_step_7x', ntraj=96, N=101):
+    simpath = Path(f'csvs/{sim}')
+    df = pd.read_csv(simpath / 'tape0.csv')
+    # extract temperatures
+    D = np.array(df[df['t'] == 0.0].D)
+    hot_beads = np.zeros((N,), dtype=bool)
+    hot_beads[D == D.max()] = True
+    print(hot_beads.sum())
+    cold_beads = np.zeros((N,), dtype=bool)
+    cold_beads[D == D.min()] = True
+    print(cold_beads.sum())
+    hot_bead_distances = []
+    cold_bead_distances = []
+    for j in range(ntraj):
+        X, t_save = process_sim((simpath / f'tape{j}.csv'))
+        ntimes, _, _ = X.shape
+        for i in range(int(ntimes // 2), ntimes, 5):
+            com = np.mean(X[i, :, :], axis=0)
+            distances_to_com = np.sum((X[i, :, :] - com) ** 2, axis=-1)
+            hot_bead_distances += list(distances_to_com[hot_beads])
+            cold_bead_distances += list(distances_to_com[cold_beads])
+    fig, ax = plt.subplots()
+    ax.hist(hot_bead_distances, bins='auto', label='hot', density=True, color='red',
+            histtype='step')
+    ax.hist(cold_bead_distances, bins='auto', label='cold', density=True, color='blue',
+            histtype='step')
+    ax.set_xlabel('Distance to COM')
+    ax.set_title('Radial distribution function')
+    ax.legend()
+    fig.tight_layout()
+    plt.savefig('plots/radial_distribution_cosine_conf.pdf')
+
 
 def end_to_end_distance(simdir, ntraj=16, b=1, L=100, N=101):
     """ End to end distance is <R_N(t) - R_0(t)>, i.e. the norm of the position vector
@@ -560,6 +786,7 @@ def analyze_idcorrs(N=101):
     simulations run using the procedure that generates correlations by assigning identities to
     monomers."""
     rhos = np.array([0.5])
+    """
     #simulation `1feat_rho.5_sameT`
     D = np.tile(1.0, N)
     mat = np.zeros((1, N))
@@ -596,7 +823,96 @@ def analyze_idcorrs(N=101):
     Rgs, avedist, eqdist = two_point_msd('csvs/1feat_rho.5_altT_alt0', ntraj=96)
     counts, Ploop, sdistances, nreplicates = contact_probability(1.0, 'csvs/1feat_rho.5_altT_alt0',
                                                                  96)
+    """
+    #simulation `conf1_rho.5_altT`
+    D = np.tile(1.0, N)
+    D[0:20] = 5.0
+    D[40:60] = 5.0
+    D[80:] = 5.0
+    mat = np.zeros((1, N))
+    mat[0, 40:60] = 1.0
+    mat[0, 80:] = 1.0
+    plot_cov_from_corr(mat, rhos, D, 'conf1_rho.5_altT', 'Covariance matrix')
+    Rgs, avedist, eqdist = two_point_msd('csvs/conf1_rho.5_altT', ntraj=96)
+    counts, Ploop, sdistances, nreplicates = contact_probability(1.0, 'csvs/conf1_rho.5_altT', 96)
 
+    #simulation `conf`_rho.5_altT_alt0`
+    D = np.tile(1.0, N)
+    D[0:33] = 5.0
+    D[66:] = 5.0
+    mat = np.zeros((1, N))
+    mat[0, 0:11] = 1.0
+    mat[0, 22:33] = -1.0
+    mat[0, 33:44] = 1.0
+    mat[0, 55:66] = -1.0
+    mat[0, 66:77] = 1.0
+    mat[0, 88:] = -1.0
+    plot_cov_from_corr(mat, rhos, D, '1feat_rho.5_altT_alt0', 'Covariance matrix')
+    Rgs, avedist, eqdist = two_point_msd('csvs/1feat_rho.5_altT_alt0', ntraj=96)
+    counts, Ploop, sdistances, nreplicates = contact_probability(1.0, 'csvs/1feat_rho.5_altT_alt0',
+                                                                 96)
+
+def analyze_step_sims(sims=['step_7x']):
+    """ Plot mean distance map, contact map (relative and absolute) for the step function
+    simulations."""
+    for sim in sims:
+        simpath = Path(f'csvs/{sim}')
+        df = pd.read_csv(simpath / 'tape0.csv')
+        # extract temperatures
+        Ds = np.array(df[df['t'] == 0.0].D)
+        if 'conf' in sim:
+            Rgsquared, dist, eqdist = two_point_msd(f'csvs/{sim}', 96,
+                                                  relative='csvs/bdeq_conf_Aex5_R5', squared=False)
+        else:
+            Rgsquared, dist, eqdist = two_point_msd(f'csvs/{sim}', 96, relative='csvs/bdeq1',
+                                                    squared=False)
+        #print(f'Radius gyration of {sim}: {Rgsquared}')
+        #mdmap_abs_rel(dist, eqdist, Ds, sim, relative=True)
+        #heatmap_divider(dist, Ds, sim, relative=False)
+        #heatmap_divider(dist - eqdist, Ds, sim, relative=True)
+        counts, contacts = contact_probability(1.0, f'csvs/{sim}', 96)
+        plot_contact_map_temps(contacts, Ds, sim)
+
+
+
+def analyze_sims(sims=['conf1_alt0_altT',
+                       'conf1_alt0_sameT', 'conf1_altT']):
+    """ Plot mean distance map, contact map, and covariance matrix for each simulation in sims."""
+    rhos = np.array([0.5])
+    for sim in sims:
+        simpath = Path(f'csvs/{sim}')
+        df = pd.read_csv(simpath/'tape0.csv')
+        #extract temperatures
+        Ds = np.array(df[df['t']==0.0].D)
+        #extract covariances
+        mat = np.zeros((1, 101))
+        if (simpath/'idmat.csv').is_file():
+            df = pd.read_csv(simpath/'idmat.csv')
+            mat = np.array(df)
+            mat = mat[0, 1:].reshape((1, 101))
+            print(mat.shape)
+        elif 'alt0' in sim:
+            mat[0, 0:20] = -1.0
+            mat[0, 40:60] = 1.0
+            mat[0, 80:] = 1.0
+        """
+        if 'alt' in sim:
+            plot_cov_from_corr(mat, rhos, Ds, sim, r'$\langle \eta_i \eta_j \rangle$')
+        if sim == 'conf1_altT':
+            Rgs, dist = two_point_msd(f'csvs/{sim}', 96)
+            heatmap_divider(dist, Ds, sim, relative=False)
+        if sim == 'conf1_alt0_altT':
+            Rgs, dist, eqdist = two_point_msd(f'csvs/{sim}', 96, relative='csvs/conf1_altT')
+            heatmap_divider(dist, Ds, sim, relative=False)
+            heatmap_divider(dist - eqdist, Ds, sim, relative=True)
+        if sim == 'conf1_alt0_sameT':
+            Rgs, dist, eqdist = two_point_msd(f'csvs/{sim}', 96, relative='csvs/bdeq_conf_Aex5_R5')
+            heatmap_divider(dist, Ds, sim, relative=False)
+            heatmap_divider(dist - eqdist, Ds, sim, relative=True)
+        """
+
+        counts, contacts = contact_probability(1.0, f'csvs/{sim}', 96)
+        plot_contact_map_temps(contacts, Ds, sim)
 
 
 
