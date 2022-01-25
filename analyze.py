@@ -21,7 +21,7 @@ params = {'axes.edgecolor': 'black',
                   'axes.titlesize': 18,
                   'axes.titlepad' : 12,
                   'axes.labelsize': 18,
-                  'legend.fontsize': 24,
+                  'legend.fontsize': 18,
                   'text.usetex': True,
                   'xtick.labelsize': 18,
                   'ytick.labelsize': 18,
@@ -175,15 +175,21 @@ def rouse_msd(X, t_save, b=1, D=1, L=100, N=101, theory=True):
     mean_monomer_msd = np.sum((X[:, :, :] - X[0, :, :])**2, axis=-1).mean(axis=-1)
     mid_monomer_msd = np.sum((X[:, int(N/2) - 1, :] - X[0, int(N/2) - 1, :]) ** 2, axis=-1)
     fig, ax = plt.subplots()
-    ax.plot(t_save, mean_monomer_msd, label='simulation, mean')
-    ax.plot(t_save, mid_monomer_msd, label='simulation, mid')
+    times = np.logspace(-4, 3, 1000)
+    ax.plot(times, 6 * (D / N) * times, 'r--')
+    ax.plot(times, (12 / np.pi * D * times) ** (1 / 2) * b, 'b--')
+    ax.plot(times, 6 * D * times, 'g--')
+    ax.plot(t_save, mean_monomer_msd, '-', label='simulation, mean')
+    ax.plot(t_save, mid_monomer_msd, '-', label='simulation, mid')
     if theory:
         Nhat = L/b
-        analytical_msd = linear_mid_msd(t_save, b, Nhat, D, num_modes=int(N / 2))
-        ax.plot(t_save, analytical_msd, label='theory')
+        analytical_msd = linear_mid_msd(times, b, Nhat, D, num_modes=int(N / 2))
+        ax.plot(times, analytical_msd, 'k-', label='theory')
     ax.set_xlabel('Time')
     ax.set_ylabel('Mean monomer MSD')
     plt.legend()
+    plt.xscale('log')
+    plt.yscale('log')
     fig.tight_layout()
     plt.show()
 
@@ -194,36 +200,56 @@ def ensemble_ave_rouse_msd(simdir, b=1, D=1, L=100, N=101, ntraj=32):
     fig, ax = plt.subplots()
     palette = sns.cubehelix_palette(n_colors=ntraj)
     ord = np.random.permutation(len(palette))
-    hot_monomer_msds = np.zeros((201,))
-    cold_monomer_msds = np.zeros((201,))
+    mid_monomer_msds = np.zeros((201,))
     mean_monomer_msds = np.zeros((201,))
     for i in range(ntraj):
         X, t_save = process_sim(simdir/f'tape{i}.csv')
-        hot_bead_msd = np.sum((X[:, int(N/2), :] - X[0, int(N/2), :]) ** 2, axis=-1)
-        cold_beads = np.arange(0, N) != int(N/2)
-        cold_beads_msd = np.sum((X[:, cold_beads, :] - X[0, cold_beads, :]) ** 2, axis=-1).mean(axis=-1)
+        mid_bead_msd = np.sum((X[:, int(N/2), :] - X[0, int(N/2), :]) ** 2, axis=-1)
         mean_beads_msd = np.sum((X[:, :, :] - X[0, :, :]) ** 2, axis=-1).mean(axis=-1)
-        hot_monomer_msds += hot_bead_msd
-        cold_monomer_msds += cold_beads_msd
+        mid_monomer_msds += mid_bead_msd
         mean_monomer_msds += mean_beads_msd
         #if simname == 'mid_hot_bead':
         #    ax.plot(t_save, hot_bead_msd, color=palette[ord[i]], alpha=0.4)
         #elif simname == 'bdeq':
+        
         #    ax.plot(t_save, mean_beads_msd, color=palette[ord[i]], alpha=0.4)
-
-    if simname == 'mid_hot_bead':
-        ax.plot(t_save, hot_monomer_msds / ntraj, 'r-', label=f'hot bead (N={ntraj})')
-        ax.plot(t_save, cold_monomer_msds / ntraj, 'b--', label=f'cold beads (N={ntraj})')
-    elif simname == 'bdeq1':
-        ax.plot(t_save, mean_monomer_msds / ntraj, 'b-', label=f'simulation average (N={ntraj})')
+    times = np.logspace(-3, 5)
+    ax.plot(t_save, mid_monomer_msds / ntraj, 'ro', label=f'mid bead (N={ntraj})')
+    ax.plot(t_save, mean_monomer_msds / ntraj, 'bo', label=f'mean bead (N={ntraj})')
     analytical_msd = linear_mid_msd(t_save, b, Nhat, D, num_modes=int(N / 2))
     ax.plot(t_save, analytical_msd, 'k-', label=r'theory, $T_{\rm eq}$')
+    ax.plot(times, 6 * (D / N) * times, 'r--')
+    ax.plot(times, (12 / np.pi * D * times) ** (1 / 2) * b, 'b--')
+    ax.plot(times, 6 * D * times, 'g--')
     ax.set_xlabel('Time')
     ax.set_ylabel('Mean monomer MSD')
+    plt.yscale('log')
+    plt.xscale('log')
     plt.legend()
     fig.tight_layout()
     plt.savefig(f'plots/monomer_msd_{simname}.pdf')
     return fig, ax
+
+def plot_analytical_rouse_msd(N, b, D):
+    """ Plot three regimes of Rouse monomer MSD."""
+    Nhat = N / b
+    #at times >> t_R, polymer should diffuse with Dg = D/N
+    rouse_time = (Nhat**2) * (b**2) / (3 * np.pi**2 * D)
+    times =  np.logspace(-3, 5)
+    fig, ax = plt.subplots()
+    analytical_msd = linear_mid_msd(times, b, Nhat, D, num_modes=int(N / 2))
+    ax.plot(times, analytical_msd, 'k-', label=r'theory, $T_{\rm eq} = 1$')
+    ax.plot(times, 6 * (D/N) * times, 'r--', label=r'$6Dt/N$')
+    ax.plot(times, (12/np.pi * D * times)**(1/2) * b, 'b--', label=r'$(12Db^2 t/\pi)^{1/2}$')
+    ax.plot(times, 6 * D * times, 'g--', label=r'$6Dt$')
+    ax.set_xlabel('Time')
+    ax.set_ylabel('Mean monomer MSD')
+    plt.yscale('log')
+    plt.xscale('log')
+    plt.legend()
+    fig.tight_layout()
+    plt.savefig('plots/rouse_msd_3regimes.pdf')
+
 
 def average_R2_vs_time(simdir, b=1, D=1, L=100, N=101, ntraj=16):
     simdir = Path(simdir)
