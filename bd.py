@@ -488,7 +488,7 @@ def correlated_noise_srk2(N, L, b, D, C, h, tmax, t_save, Deq=1):
     return x
 
 @njit
-def identity_core_noise_srk2(N, L, b, D, h, tmax, t_save,
+def conf_identity_core_noise_srk2(N, L, b, D, h, tmax, t_save,
                              Aex, rx, ry, rz, mat, rhos, Deq=1):
     """ Generate correlations via identity matrix, rhos. """
     rtol = 1e-5
@@ -520,6 +520,49 @@ def identity_core_noise_srk2(N, L, b, D, h, tmax, t_save,
         # force at position b
         noise = generate_correlations_vars(mat, rhos, sigma)
         Fb = f_conf_spring(x0, k_over_xi, Aex, rx, ry, rz)
+        x0 = x0 + 0.5 * (Fa + Fb) * h + noise
+        if np.abs(i*h - t_save[save_i]) < rtol * np.abs(t_save[save_i]):
+            x[save_i] = x0
+            save_i += 1
+    return x
+
+@njit
+def identity_core_noise_srk2(N, L, b, D, h, tmax, t_save,
+                             mat, rhos, Deq=1):
+    """ Generate correlations via identity matrix, rhos. """
+    rtol = 1e-5
+    # derived parameters
+    L0 = L / (N - 1)  # length per bead
+    bhat = np.sqrt(L0 * b)  # mean squared bond length of discrete gaussian chain
+    Nhat = L / b  # number of Kuhn lengths in chain
+    Dhat = D * N / Nhat  # diffusion coef of a discrete gaussian chain bead
+    Deq = Deq * N / Nhat
+    # set spring constant to be 3D/b^2 where D is the diffusion coefficient of the coldest bead
+    k_over_xi = 3 * Deq / bhat ** 2
+    #initial position
+    # initial position, sqrt(3) since generating per-coordinate
+    x0 = bhat / np.sqrt(3) * np.random.randn(N, 3)
+    # for jit, we unroll ``x0 = np.cumsum(x0, axis=0)``
+    for i in range(1, N):
+        x0[i] = x0[i - 1] + x0[i]
+    x = np.zeros(t_save.shape + x0.shape)
+    save_i = 0
+    if 0 == t_save[save_i]:
+        x[0] = x0
+        save_i += 1
+    #standard deviation of noise 2Dh
+    sigma = np.sqrt(2 * Dhat * h)
+    ntimesteps = int(tmax // h) + 1 #including 0th time step
+
+    for i in range(1, ntimesteps):
+        #correlated noise matrix (N x 3)
+        noise = generate_correlations_vars(mat, rhos, sigma)
+        # force at position a
+        Fa = f_elas_linear_rouse(x0, k_over_xi)
+        x1 = x0 + h * Fa + noise
+        # force at position b
+        noise = generate_correlations_vars(mat, rhos, sigma)
+        Fb = f_elas_linear_rouse(x0, k_over_xi)
         x0 = x0 + 0.5 * (Fa + Fb) * h + noise
         if np.abs(i*h - t_save[save_i]) < rtol * np.abs(t_save[save_i]):
             x[save_i] = x0

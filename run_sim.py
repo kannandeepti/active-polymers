@@ -130,7 +130,8 @@ def run_correlated(i, N, L, b, D, filedir, length=10,
     df.set_index(['t'], inplace=True)
     df.to_csv(file)
 
-def run_identity_correlated(i, N, L, b, D, filedir, mat, rhos):
+def run_identity_correlated(i, N, L, b, D, filedir, mat, rhos, confined,
+                           Aex=5.0, rx=5.0, ry=5.0, rz=5.0):
     """ Run one simulation of a length L chain ith N beads, 
     Kuhn length b, and array of diffusion coefficients D. Use a Gaussian
     correlation matrix. """
@@ -144,10 +145,15 @@ def run_identity_correlated(i, N, L, b, D, filedir, mat, rhos):
             raise
     tmax = 1e5
     h = 0.01
-    print(f'Simulation time step: {h}')
+    print(f'Running simulation {filedir.name}')
+
     #save 100 conformations
     t_save = np.linspace(0, 1e5, 200 + 1)
-    X = identity_core_noise_srk2(N, L, b, D, h, tmax, t_save, mat, rhos)
+    if confined:
+        X = conf_identity_core_noise_srk2(N, L, b, D, h, tmax, t_save, Aex, rx,
+                                          ry, rz, mat, rhos)
+    else:
+        X = identity_core_noise_srk2(N, L, b, D, h, tmax, t_save, mat, rhos)
     dfs = []
     for i in range(X.shape[0]):
         df = pd.DataFrame(X[i, :, :])
@@ -171,7 +177,7 @@ def run(i, N, L, b, D, filedir, t=None, confined=False,
             raise
     if t is None:
         t = np.linspace(0, 1e5, int(1e7) + 1)
-    print(f'Simulation time step: {t[1] - t[0]}')
+    print(f'Running simulation {filedir.name}')
     #save 100 conformations
     t_save = np.linspace(0, 1e5, 200 + 1)
     if confined:
@@ -193,10 +199,12 @@ if __name__ == '__main__':
     L = 100
     b = 1
     D = np.tile(1, N)
-    #tic = time.perf_counter()
-    #X, t_save = test_identity_correlated_noise()
-    #toc = time.perf_counter()
-    #print(f'Ran simulation in {(toc - tic):0.4f}s')
+    """
+    tic = time.perf_counter()
+    X, t_save = test_identity_correlated_noise()
+    toc = time.perf_counter()
+    print(f'Ran simulation in {(toc - tic):0.4f}s')
+    """
     #define cosine wave of temperature activity with amplitude 5 times equilibrium temperature
     #period of wave is 25, max is 11, min is 1
     #B = 2 * np.pi / 25
@@ -204,22 +212,36 @@ if __name__ == '__main__':
     #reduce time step by order of magnitude due to higher diffusivity
     #t = np.linspace(0, 1e5, int(1e8) + 1)
     #D[int(N//2)] = 10 #one hot bead
-    #D[10:30] = 10.0
-    #D[50:80] = 10.0
+    #D = np.tile(0.25, N)
+    #D[10:30] = 1.75
+    #D[50:80] = 1.75
     #alternating hot and cold regions
-    D[0:33] = 5.0
-    D[66:] = 5.0
+    #simulation `1feat_rho.5_sameT`
+    #Define hot to be 1.75 and cold to be 0.25 so mean D = 1.0
+    D = np.tile(0.25, N)
+    D[0:20] = 1.75
+    D[40:60] = 1.75
+    D[80:] = 1.75
     mat = np.zeros((1, N))
-    mat[0, 0:11] = 1.0
-    mat[0, 22:33] = -1.0
-    mat[0, 33:44] = 1.0
-    mat[0, 55:66] = -1.0
-    mat[0, 66:77] = 1.0
-    mat[0, 88:] = - 1.0 
+    mat[0, 0:20] = -1.0
+    mat[0, 40:60] = 1.0
+    mat[0, 80:] = 1.0
     rhos = np.array([0.5])
-    filedir = Path('csvs/1feat_rho.5_altT_alt0')
+    filedir = Path('csvs/1id_alt0_altT')
+    """
+    file = Path(filedir)/'idmat.csv'
+    try:
+        file.parent.mkdir(parents=True)
+    except:
+        if file.parent.is_dir() is False:
+            # if the parent directory does not exist and mkdir still failed, re-raise an exception
+            raise
+    #save identity matrix for future reference
+    df = pd.DataFrame(mat)
+    df.to_csv(file)
+    """
     func = partial(run_identity_correlated, N=N, L=L, b=b, D=D, filedir=filedir,
-                  mat=mat, rhos=rhos)
+                   mat=mat, rhos=rhos, confined=False)
     tic = time.perf_counter()
     pool_size = 16
     N = 96
