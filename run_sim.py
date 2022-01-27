@@ -137,6 +137,7 @@ def run_identity_correlated(i, N, L, b, D, filedir, mat, rhos, confined,
     correlation matrix. """
 
     file = Path(filedir)/f'tape{i}.csv'
+    msd_file = Path(filedir)/f'msds{i}.csv'
     try:
         file.parent.mkdir(parents=True)
     except:
@@ -144,16 +145,15 @@ def run_identity_correlated(i, N, L, b, D, filedir, mat, rhos, confined,
             # if the parent directory does not exist and mkdir still failed, re-raise an exception
             raise
     tmax = 1e5
-    h = 0.01
-    print(f'Running simulation {filedir.name}')
-
-    #save 100 conformations
-    t_save = np.linspace(0, 1e5, 200 + 1)
+    h = 0.001
+    t_save = np.linspace(350.0, tmax, 1000 + 1)
+    t_msd = np.logspace(-2, 5, 100)
     if confined:
         X = conf_identity_core_noise_srk2(N, L, b, D, h, tmax, t_save, Aex, rx,
                                           ry, rz, mat, rhos)
     else:
-        X = identity_core_noise_srk2(N, L, b, D, h, tmax, t_save, mat, rhos)
+        X, msd = identity_core_noise_srk2(N, L, b, D, h, tmax, t_save, mat, rhos,
+                                    t_msd=t_msd)
     dfs = []
     for i in range(X.shape[0]):
         df = pd.DataFrame(X[i, :, :])
@@ -163,6 +163,40 @@ def run_identity_correlated(i, N, L, b, D, filedir, mat, rhos, confined,
     df = pd.concat(dfs, ignore_index=True, sort=False)
     df.set_index(['t'], inplace=True)
     df.to_csv(file)
+    df = pd.DataFrame(msd)
+    df['t_msd'] = t_msd
+    df.to_csv(msd_file)
+
+def run_msd(i, N, L, b, D, filedir, h=None, tmax=None):
+    """ Run one simulation of a length L chain with N beads,
+    Kuhn length b, and array of diffusion coefficients D."""
+    file = Path(filedir)/f'tape{i}.csv'
+    msd_file = Path(filedir)/f'msds{i}.csv'
+    try:
+        file.parent.mkdir(parents=True)
+    except:
+        if file.parent.is_dir() is False:
+            # if the parent directory does not exist and mkdir still failed, re-raise an exception
+            raise
+    if h is None:
+        h = 0.001
+    if tmax is None:
+        tmax = 1.0e5
+    t_save = np.linspace(350.0, tmax, 1000 + 1)
+    t_msd = np.logspace(-2, 5, 100)
+    X, msd = with_srk1(N, L, b, D, h, tmax, t_save=t_save, t_msd=t_msd)
+    dfs = []
+    for i in range(X.shape[0]):
+        df = pd.DataFrame(X[i, :, :])
+        df['t'] = t_save[i]
+        df['D'] = D #save diffusivities of beads
+        dfs.append(df)
+    df = pd.concat(dfs, ignore_index=True, sort=False)
+    df.set_index(['t'], inplace=True)
+    df.to_csv(file)
+    df = pd.DataFrame(msd)
+    df['t_msd'] = t_msd
+    df.to_csv(msd_file)
 
 def run(i, N, L, b, D, filedir, t=None, confined=False, 
         Aex=5.0, rx=5.0, ry=5.0, rz=5.0):
@@ -199,12 +233,15 @@ if __name__ == '__main__':
     L = 100
     b = 1
     D = np.tile(1, N)
+    #D = np.tile(0.25, N)
+    #D[10:30] = 1.75
+    #D[50:80] = 1.75
+    filedir = Path('csvs/corr_msd1')
     """
     tic = time.perf_counter()
     X, t_save = test_identity_correlated_noise()
     toc = time.perf_counter()
     print(f'Ran simulation in {(toc - tic):0.4f}s')
-    """
     #define cosine wave of temperature activity with amplitude 5 times equilibrium temperature
     #period of wave is 25, max is 11, min is 1
     #B = 2 * np.pi / 25
@@ -212,9 +249,6 @@ if __name__ == '__main__':
     #reduce time step by order of magnitude due to higher diffusivity
     #t = np.linspace(0, 1e5, int(1e8) + 1)
     #D[int(N//2)] = 10 #one hot bead
-    #D = np.tile(0.25, N)
-    #D[10:30] = 1.75
-    #D[50:80] = 1.75
     #alternating hot and cold regions
     #simulation `1feat_rho.5_sameT`
     #Define hot to be 1.75 and cold to be 0.25 so mean D = 1.0
@@ -222,13 +256,12 @@ if __name__ == '__main__':
     D[0:20] = 1.75
     D[40:60] = 1.75
     D[80:] = 1.75
-    mat = np.zeros((1, N))
-    mat[0, 0:20] = -1.0
-    mat[0, 40:60] = 1.0
-    mat[0, 80:] = 1.0
-    rhos = np.array([0.5])
-    filedir = Path('csvs/1id_alt0_altT')
     """
+    mat = np.ones((1, N))
+    mat[0, 10:30] = -1.0
+    mat[0, 50:80] = -1.0
+    rhos = np.array([0.5])
+
     file = Path(filedir)/'idmat.csv'
     try:
         file.parent.mkdir(parents=True)
@@ -239,9 +272,9 @@ if __name__ == '__main__':
     #save identity matrix for future reference
     df = pd.DataFrame(mat)
     df.to_csv(file)
-    """
-    func = partial(run_identity_correlated, N=N, L=L, b=b, D=D, filedir=filedir,
-                   mat=mat, rhos=rhos, confined=False)
+    print(f'Running simulation {filedir.name}')
+    func = partial(run_identity_correlated, N=N, L=L, b=b, D=D,
+                   filedir=filedir, mat=mat, rhos=rhos, confined=False)
     tic = time.perf_counter()
     pool_size = 16
     N = 96

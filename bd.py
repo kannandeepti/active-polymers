@@ -353,7 +353,7 @@ def with_srk1(N, L, b, D, h, tmax, t_save=None, t_msd=None, msd_start_time=None,
                 msd_start_pos = x0.copy()
             if i == msd_inds[msd_i]:
                 #calculate msds, increment msd save index
-                mean = np.zeros(x0[j].shape)
+                mean = np.zeros(x0[0].shape)
                 for j in range(N):
                     diff = x0[j] - msd_start_pos[j]
                     mean += diff
@@ -527,8 +527,8 @@ def conf_identity_core_noise_srk2(N, L, b, D, h, tmax, t_save,
     return x
 
 @njit
-def identity_core_noise_srk2(N, L, b, D, h, tmax, t_save,
-                             mat, rhos, Deq=1):
+def identity_core_noise_srk2(N, L, b, D, h, tmax, t_save, mat, rhos, 
+                             t_msd=None, msd_start_time=None, Deq=1):
     """ Generate correlations via identity matrix, rhos. """
     rtol = 1e-5
     # derived parameters
@@ -546,7 +546,18 @@ def identity_core_noise_srk2(N, L, b, D, h, tmax, t_save,
     for i in range(1, N):
         x0[i] = x0[i - 1] + x0[i]
     x = np.zeros(t_save.shape + x0.shape)
+    if t_msd is not None:
+        #at each msd save point, msds of N monomers + center of mass
+        msds = np.zeros((len(t_msd), N+1))
+        msd_inds = np.rint(t_msd / h)
+        msd_i = 0
+        if msd_start_time is None:
+            msd_start_ind = 0
+            msd_start_pos = x0.copy() #N x 3
+        else:
+            msd_start_ind = int(msd_start_time // h)
     save_i = 0
+    save_inds = np.rint(t_save / h)
     if 0 == t_save[save_i]:
         x[0] = x0
         save_i += 1
@@ -564,10 +575,24 @@ def identity_core_noise_srk2(N, L, b, D, h, tmax, t_save,
         noise = generate_correlations_vars(mat, rhos, sigma)
         Fb = f_elas_linear_rouse(x0, k_over_xi)
         x0 = x0 + 0.5 * (Fa + Fb) * h + noise
-        if np.abs(i*h - t_save[save_i]) < rtol * np.abs(t_save[save_i]):
+        if t_msd is not None:
+            if i == msd_start_ind:
+                msd_start_pos = x0.copy()
+            if i == msd_inds[msd_i]:
+                #calculate msds, increment msd save index
+                mean = np.zeros(x0[0].shape)
+                for j in range(N):
+                    diff = x0[j] - msd_start_pos[j]
+                    mean += diff
+                    msds[msd_i, j] = diff @ diff
+                #center of mass msd
+                diff = mean / N
+                msds[msd_i, -1] = diff @ diff
+                msd_i += 1
+        if i == save_inds[save_i]:
             x[save_i] = x0
             save_i += 1
-    return x
+    return x, msds
 
 
 @njit
