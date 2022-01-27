@@ -9,7 +9,6 @@ from matplotlib.colors import LogNorm, Normalize
 from mpl_toolkits.axes_grid1 import make_axes_locatable, ImageGrid
 import seaborn as sns
 import cmasher as cmr
-
 import pandas as pd
 from pathlib import Path
 from scipy.spatial.distance import pdist, squareform
@@ -79,7 +78,6 @@ def process_sim(file):
         X.append(mat.to_numpy()[:, 1:])
     t_save = np.array(t_save)
     X = np.array(X)
-    assert(len(t_save) == X.shape[0])
     return X, t_save
 
 def to_XYZ(X, temps, filepath, filename, frames=None, L=100, b=1):
@@ -193,13 +191,11 @@ def rouse_msd(X, t_save, b=1, D=1, L=100, N=101, theory=True):
     fig.tight_layout()
     plt.show()
 
-def ensemble_ave_rouse_msd(simdir, b=1, D=1, L=100, N=101, ntraj=32):
+def ensemble_ave_rouse_msd(simdir, b=1, D=1, L=100, N=101, ntraj=96):
     simdir = Path(simdir)
     simname = simdir.name
     Nhat = L/b
     fig, ax = plt.subplots()
-    palette = sns.cubehelix_palette(n_colors=ntraj)
-    ord = np.random.permutation(len(palette))
     mid_monomer_msds = np.zeros((201,))
     mean_monomer_msds = np.zeros((201,))
     for i in range(ntraj):

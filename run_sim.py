@@ -94,7 +94,7 @@ def test_bd_sim_confined(N=101, L=100, b=1, D=1):
 def test_bd_clean(N=11, L=10, b=1, D=1.0, a=0.445):
     """ TODO: debug"""
     D = np.tile(D, N)
-    h = 2e-5
+    h = 0.001
     tmax = 350.0
     t_save = np.linspace(0, tmax, 1000 + 1)
     X = jit_avoid_srk2(N, L, b, D, a, h, tmax, t_save)
@@ -250,18 +250,17 @@ if __name__ == '__main__':
     #t = np.linspace(0, 1e5, int(1e8) + 1)
     #D[int(N//2)] = 10 #one hot bead
     #alternating hot and cold regions
-    #simulation `1feat_rho.5_sameT`
-    #Define hot to be 1.75 and cold to be 0.25 so mean D = 1.0
-    D = np.tile(0.25, N)
-    D[0:20] = 1.75
-    D[40:60] = 1.75
-    D[80:] = 1.75
     """
-    mat = np.ones((1, N))
-    mat[0, 10:30] = -1.0
-    mat[0, 50:80] = -1.0
+    D[0:33] = 5.0
+    D[66:] = 5.0
+    mat = np.zeros((1, N))
+    mat[0, 0:11] = 1.0
+    mat[0, 22:33] = -1.0
+    mat[0, 33:44] = 1.0
+    mat[0, 55:66] = -1.0
+    mat[0, 66:77] = 1.0
+    mat[0, 88:] = - 1.0 
     rhos = np.array([0.5])
-
     file = Path(filedir)/'idmat.csv'
     try:
         file.parent.mkdir(parents=True)
@@ -282,4 +281,5 @@ if __name__ == '__main__':
         result = p.map(func, np.arange(0, N))
     toc = time.perf_counter()
     print(f'Ran simulation in {(toc - tic):0.4f}s')
+    """
 
