@@ -754,7 +754,8 @@ def conf_identity_core_noise_srk2(N, L, b, D, h, tmax, t_save,
     return x
 
 @njit
-def scr_avoidNL_srk2(N, L, b, D, a, h, tmax, t_save=None, Deq=1):
+def scr_avoidNL_srk2(N, L, b, D, a, h, tmax, t_save=None, t_msd=None,
+                     msd_start_time=None, Deq=1):
     """ Simulate a self-avoiding Rouse polymer via a soft core (harmonic)
     repulsive potential. With h=0.001, this works! Roughly 10 pairs of monomers
     may be overlapping at any given time but overlaps decay in a matter of a few time steps.
@@ -789,6 +790,17 @@ def scr_avoidNL_srk2(N, L, b, D, a, h, tmax, t_save=None, Deq=1):
     neighlist = NeighborList(d, 0.5*d, box_size)
     cl, nl = neighlist.updateNL(x0)
 
+    if t_msd is not None:
+        #at each msd save point, msds of N monomers + center of mass
+        msds = np.zeros((len(t_msd), N+1))
+        msd_inds = np.rint(t_msd / h)
+        msd_i = 0
+        if msd_start_time is None:
+            msd_start_ind = 0
+            msd_start_pos = x0.copy() #N x 3
+        else:
+            msd_start_ind = int(msd_start_time // h)
+
     x = np.zeros(t_save.shape + x0.shape)
     # setup for saving only requested time points
     save_i = 0
@@ -814,10 +826,25 @@ def scr_avoidNL_srk2(N, L, b, D, a, h, tmax, t_save=None, Deq=1):
         noise = (sigma * np.random.randn(*x0.shape).T).T
         Fb = f_spring_scr_NL(x1, k_over_xi, ks_over_xi, a, dsq, cl, nl, box_size)
         x0 = x0 + 0.5 * (Fa + Fb) * h + noise
+        #msd calculation
+        if t_msd is not None:
+            if i == msd_start_ind:
+                msd_start_pos = x0.copy()
+            if i == msd_inds[msd_i]:
+                #calculate msds, increment msd save index
+                mean = np.zeros(x0[0].shape)
+                for j in range(N):
+                    diff = x0[j] - msd_start_pos[j]
+                    mean += diff
+                    msds[msd_i, j] = diff @ diff
+                #center of mass msd
+                diff = mean / N
+                msds[msd_i, -1] = diff @ diff
+                msd_i += 1
         if np.abs(i * h - t_save[save_i]) < rtol * np.abs(t_save[save_i]):
             x[save_i] = x0
             save_i += 1
-    return x
+    return x, msds
 
 @njit
 def jit_avoidNL_srk2(N, L, b, D, a, h, tmax, t_save=None, Deq=1):
