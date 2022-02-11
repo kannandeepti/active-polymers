@@ -91,14 +91,12 @@ def test_bd_sim_confined(N=101, L=100, b=1, D=1):
     X = jit_confined_srk1(N, L, b, np.tile(D, N), 1.0, 10.0, 10.0, 10.0, t, t_save=t_save)
     return X, t_save
 
-def test_bd_clean(N=11, L=10, b=1, D=1.0, a=0.445):
+def test_bd_clean(N=101, L=100, b=1, D=1.0, a=0.445, tmax=350.0, h=0.001):
     """ TODO: debug"""
     D = np.tile(D, N)
-    h = 0.001
-    tmax = 350.0
-    t_save = np.linspace(0, tmax, 1000 + 1)
-    X = jit_avoid_srk2(N, L, b, D, a, h, tmax, t_save)
-    return X, t_save
+    t_save = np.linspace(0, tmax, 100 + 1)
+    X, nlupdates = scr_avoidNL_srk2(N, L, b, D, a, h, tmax, t_save)
+    return X, nlupdates, t_save
 
 def run_correlated(i, N, L, b, D, filedir, length=10, 
                   s0=30, s0_prime=70, max=0.9):
@@ -250,7 +248,7 @@ if __name__ == '__main__':
     #t = np.linspace(0, 1e5, int(1e8) + 1)
     #D[int(N//2)] = 10 #one hot bead
     #alternating hot and cold regions
-    """
+    
     D[0:33] = 5.0
     D[66:] = 5.0
     mat = np.zeros((1, N))

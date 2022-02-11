@@ -1,7 +1,9 @@
-""" Script to run brownian dynamics simulations of active polymer."""
+""" Script to analyze brownian dynamics simulations of active polymer."""
+
 import numpy as np
 from rouse import linear_mid_msd, end2end_distance_gauss, gaussian_Ploop
 from correlations import *
+from files import *
 import matplotlib as mpl
 from matplotlib import pyplot as plt
 import matplotlib.colors as colors
@@ -68,67 +70,6 @@ dt = recommended_dt(N, L, b, D)
 print(f'Time step: {dt}')
 """
 
-def process_sim(file):
-    df = pd.read_csv(file)
-    dfg = df.groupby('t')
-    t_save = []
-    X = []
-    for t, mat in dfg:
-        t_save.append(t)
-        X.append(mat.to_numpy()[:, 1:])
-    t_save = np.array(t_save)
-    X = np.array(X)
-    return X, t_save
-
-def to_XYZ(X, temps, filepath, filename, frames=None, L=100, b=1):
-    """" Convert the last frame of the simulation trajectory into an
-    XYZ file readable by OVITO visualization software.
-
-    TODO: export multiple frames to visualize simulation trajectory.
-    """
-    nframes, N, dim = X.shape
-    filepath = Path(filepath)
-    particle_radius = np.sqrt(L * b / (N - 1))/2
-    cmap = mpl.cm.get_cmap('coolwarm')
-    #if all the beads are at the same temperature, assume they are all cold
-    if len(np.unique(temps)) == 1:
-        colors = [mpl.colors.to_rgb(cmap(0.0)) for n in range(N)]
-    else:
-        #assign color based on temperature
-        norm = mpl.colors.Normalize(vmin=np.min(temps), vmax=np.max(temps))
-        colors = [mpl.colors.to_rgb(cmap(norm(d))) for d in temps]
-    assert (len(colors) == N)
-    with open(filepath/f'{filename}.txt', 'w') as f:
-        f.write(f'{N}\n\n')
-        for i in range(N):
-            f.write(f'{i} {X[-1, i, 0]} {X[-1, i, 1]} {X[-1, i, 2]} {particle_radius} {temps[i]} {colors[i][0]} {colors[i][1]} {colors[i][2]}\n')
-    """ TODO: Write topology and atom info in LAMMPS data format so as to not have to add modifiers in GUI application."""
-    """
-    topology = np.zeros((N-1, 4))
-    topology[:, 0] = np.arange(1, N)
-    topology[:, 1] = np.tile(1, N-1)
-    topology[:, 2:] = np.array([np.arange(n, n+2) for n in range(N - 1)])
-    with open(filepath/f'topology_{filename}.txt', 'w') as f:
-        f.write('LAMMPS Description\n\n')
-        f.write(f'{N-1} bonds\n\n')
-        f.write('Bonds\n\n')
-        for i in range(N-1):
-            f.write(f'{topology[i, 0]} {topology[i, 1]} {topology[i, 2]} {topology[i, 3]}\n')
-    """
-
-
-def convert_to_xyz(simdir, tape, L=100, b=1, **kwargs):
-    """ For specified tape (trajectory) within a given simulation directory,
-    write the last frame to an XYZ file, specifying temperature, etc."""
-    simdir = Path(simdir)
-    simname = simdir.name
-    df = pd.read_csv(simdir / f'tape{tape}.csv')
-    # extract temperatures
-    D = np.array(df[df['t'] == 0.0].D)
-    X, t_save = process_sim(Path(simdir / f'tape{tape}.csv'))
-    nframes, N, dim = X.shape
-    to_XYZ(X, D, simdir, f'tape{tape}_frame{nframes-1}', **kwargs)
-
 def end_to_end_distance_squared_vs_time(X, t_save, b=1, L=100):
     """ End to end distance is <R_N(t) - R_0(t)>, i.e. the norm of the position vector
     of last bead minus position vector of first beed. """
@@ -168,85 +109,6 @@ def end_to_end_distance_vs_Rmax(X, t_save, b=1, L=100, N=101):
     fig.tight_layout()
     plt.show()
 
-def rouse_msd(X, t_save, b=1, D=1, L=100, N=101, theory=True):
-    """ Compute MSD of individual beads of polymer averaged over all beads."""
-    mean_monomer_msd = np.sum((X[:, :, :] - X[0, :, :])**2, axis=-1).mean(axis=-1)
-    mid_monomer_msd = np.sum((X[:, int(N/2) - 1, :] - X[0, int(N/2) - 1, :]) ** 2, axis=-1)
-    fig, ax = plt.subplots()
-    times = np.logspace(-4, 3, 1000)
-    ax.plot(times, 6 * (D / N) * times, 'r--')
-    ax.plot(times, (12 / np.pi * D * times) ** (1 / 2) * b, 'b--')
-    ax.plot(times, 6 * D * times, 'g--')
-    ax.plot(t_save, mean_monomer_msd, '-', label='simulation, mean')
-    ax.plot(t_save, mid_monomer_msd, '-', label='simulation, mid')
-    if theory:
-        Nhat = L/b
-        analytical_msd = linear_mid_msd(times, b, Nhat, D, num_modes=int(N / 2))
-        ax.plot(times, analytical_msd, 'k-', label='theory')
-    ax.set_xlabel('Time')
-    ax.set_ylabel('Mean monomer MSD')
-    plt.legend()
-    plt.xscale('log')
-    plt.yscale('log')
-    fig.tight_layout()
-    plt.show()
-
-def ensemble_ave_rouse_msd(simdir, b=1, D=1, L=100, N=101, ntraj=96):
-    simdir = Path(simdir)
-    simname = simdir.name
-    Nhat = L/b
-    fig, ax = plt.subplots()
-    mid_monomer_msds = np.zeros((201,))
-    mean_monomer_msds = np.zeros((201,))
-    for i in range(ntraj):
-        X, t_save = process_sim(simdir/f'tape{i}.csv')
-        mid_bead_msd = np.sum((X[:, int(N/2), :] - X[0, int(N/2), :]) ** 2, axis=-1)
-        mean_beads_msd = np.sum((X[:, :, :] - X[0, :, :]) ** 2, axis=-1).mean(axis=-1)
-        mid_monomer_msds += mid_bead_msd
-        mean_monomer_msds += mean_beads_msd
-        #if simname == 'mid_hot_bead':
-        #    ax.plot(t_save, hot_bead_msd, color=palette[ord[i]], alpha=0.4)
-        #elif simname == 'bdeq':
-        
-        #    ax.plot(t_save, mean_beads_msd, color=palette[ord[i]], alpha=0.4)
-    times = np.logspace(-3, 5)
-    ax.plot(t_save, mid_monomer_msds / ntraj, 'ro', label=f'mid bead (N={ntraj})')
-    ax.plot(t_save, mean_monomer_msds / ntraj, 'bo', label=f'mean bead (N={ntraj})')
-    analytical_msd = linear_mid_msd(t_save, b, Nhat, D, num_modes=int(N / 2))
-    ax.plot(t_save, analytical_msd, 'k-', label=r'theory, $T_{\rm eq}$')
-    ax.plot(times, 6 * (D / N) * times, 'r--')
-    ax.plot(times, (12 / np.pi * D * times) ** (1 / 2) * b, 'b--')
-    ax.plot(times, 6 * D * times, 'g--')
-    ax.set_xlabel('Time')
-    ax.set_ylabel('Mean monomer MSD')
-    plt.yscale('log')
-    plt.xscale('log')
-    plt.legend()
-    fig.tight_layout()
-    plt.savefig(f'plots/monomer_msd_{simname}.pdf')
-    return fig, ax
-
-def plot_analytical_rouse_msd(N, b, D):
-    """ Plot three regimes of Rouse monomer MSD."""
-    Nhat = N / b
-    #at times >> t_R, polymer should diffuse with Dg = D/N
-    rouse_time = (Nhat**2) * (b**2) / (3 * np.pi**2 * D)
-    times =  np.logspace(-3, 5)
-    fig, ax = plt.subplots()
-    analytical_msd = linear_mid_msd(times, b, Nhat, D, num_modes=int(N / 2))
-    ax.plot(times, analytical_msd, 'k-', label=r'theory, $T_{\rm eq} = 1$')
-    ax.plot(times, 6 * (D/N) * times, 'r--', label=r'$6Dt/N$')
-    ax.plot(times, (12/np.pi * D * times)**(1/2) * b, 'b--', label=r'$(12Db^2 t/\pi)^{1/2}$')
-    ax.plot(times, 6 * D * times, 'g--', label=r'$6Dt$')
-    ax.set_xlabel('Time')
-    ax.set_ylabel('Mean monomer MSD')
-    plt.yscale('log')
-    plt.xscale('log')
-    plt.legend()
-    fig.tight_layout()
-    plt.savefig('plots/rouse_msd_3regimes.pdf')
-
-
 def average_R2_vs_time(simdir, b=1, D=1, L=100, N=101, ntraj=16):
     simdir = Path(simdir)
     Nhat = L/b
@@ -277,8 +139,9 @@ def plot_correlation(C, name, title):
     fig.tight_layout()
     plt.savefig(f'plots/correlation_{name}.pdf')
 
-def plot_cov_from_corr(mat, rhos, D, name, title=r'$\langle \eta_i \eta_j \rangle$', N=101, L=100,
-                       b=1):
+def plot_cov_from_corr(mat, rhos, D, name,
+                       title=r'$\langle \eta_i \eta_j \rangle = 2\sqrt{D_i}\sqrt{D_j}C_{ij}$',
+                       N=101, L=100, b=1):
     Nhat = L / b
     Dhat = D * N / Nhat
     stds = np.sqrt(2 * Dhat)
@@ -514,7 +377,8 @@ def contact_probability(a, simdir, ntraj, N=101, eq_contacts=None):
         X, t_save = process_sim(simdir / f'tape{j}.csv')
         ntimes, _, _ = X.shape
         nreplicates = ntraj * len(range(int(ntimes // 2), ntimes, 5))
-        Xeq, _ = process_sim(Path('csvs/bdeq1') / f'tape{j}.csv')
+        if eq_contacts:
+            Xeq, _ = process_sim(Path('csvs/bdeq1') / f'tape{j}.csv')
         for i in range(int(ntimes//2), ntimes, 5):
             #for temperature modulations
             dist = pdist(X[i, :, :], metric=metric)
@@ -524,7 +388,7 @@ def contact_probability(a, simdir, ntraj, N=101, eq_contacts=None):
     contacts = counts / nreplicates
     return counts, contacts
 
-def plot_contact_map(contacts, eq_contacts = None):
+def plot_contact_map(contacts, eq_contacts = None, robust=True, **kwargs):
     #Plot contact map (each entry is probability of looping within radius a)
     fig, ax = plt.subplots()
     if eq_contacts is not None:
@@ -535,7 +399,8 @@ def plot_contact_map(contacts, eq_contacts = None):
         contacts[contacts == 0] = 1e-5
         lognorm = LogNorm(vmin=contacts.min(), vmax=contacts.max())
         res = sns.heatmap(contacts, norm=lognorm,
-                    cmap="Reds", square=True, xticklabels=25, yticklabels=25, robust=True, ax=ax)
+                    cmap="Reds", square=True, xticklabels=25, yticklabels=25, robust=robust, ax=ax,
+                          **kwargs)
         ax.set_title(r'Contact Map $P(\Vert \vec{r}_i - \vec{r}_j \Vert < a)$')
     ax.set_xlabel(r'Bead $i$')
     ax.set_ylabel(r'Bead $j$')
@@ -545,7 +410,9 @@ def plot_contact_map(contacts, eq_contacts = None):
     fig.tight_layout()
     plt.savefig(f'plots/contact_map_{simdir.name}.pdf')
 
-def plot_contact_map_temps(contacts, temps, simname, width=5, **kwargs):
+def plot_contact_map_temps(contacts, temps, simname, width=5, a=1, tag=None, **kwargs):
+    if tag is None:
+        tag = ''
     contacts[contacts == 0] = 1e-5
     lognorm = LogNorm(vmin=contacts.min(), vmax=contacts.max())
     D = np.ones((width, 101))
@@ -567,11 +434,11 @@ def plot_contact_map_temps(contacts, temps, simname, width=5, **kwargs):
     ax_bottom.imshow(D, cmap='coolwarm', vmin=0.25, vmax=1.75)
     ax_left.imshow(D.T, cmap='coolwarm', vmin=0.25, vmax=1.75)
     fig.colorbar(im, cax=cax)
-    ax.set_title(r'Contact Map $P(\Vert \vec{r}_i - \vec{r}_j \Vert < a)$')
+    ax.set_title(f'Contact Map $P(\\Vert \\vec{{r}}_i - \\vec{{r}}_j \\Vert < {a})$')
     ax_bottom.set_xlabel(r'Bead $i$')
     ax_left.set_ylabel(r'Bead $j$')
     fig.tight_layout()
-    plt.savefig(f'plots/contact_map_{simname}_temps.pdf')
+    plt.savefig(f'plots/contact_map_{simname}_temps{tag}.pdf')
 
 def compute_ploop(counts, nreplicates):
     #To compute histogram as a function of s, distance along chain, sum over diagonals
@@ -727,7 +594,11 @@ def end_to_end_distance(simdir, ntraj=16, b=1, L=100, N=101):
     plt.show()
 
 def plot_chain(simdir, ntraj=96, mfig=None, **kwargs):
-    """ Plot a random chain from the last time point of one of these simulations"""
+    """ Plot a random chain from the last time point of one of these simulations
+    using Mayavi.
+
+    TODO: test. Mayavi is not installing properly on my computer,
+    so we use olivo to visualize snapshots instead. """
     if mfig is None:
         mfig = mlab.figure()
     j = np.random.randint(0, ntraj)
@@ -750,6 +621,23 @@ def plot_chain(simdir, ntraj=96, mfig=None, **kwargs):
         mlab.points3d(positions[i, 0], positions[i, 1], positions[i, 2], scale_factor=5, figure=mfig,
                       color=colors[i], **kwargs)
     return mfig
+
+def analytical_com_diffusion(simdir):
+    """ For a given simulation, extract covariance matrix, compute analytical center of mass
+    diffusion coefficient (comD) and return ratio of comD to center of mass diffusion coefficient
+    of a Rouse polymer."""
+
+    D, idmat, rhos = extract_cov(simdir)
+    N = len(D)
+    rho = rhos[0]
+    corr = np.outer(idmat, idmat)
+    corr *= rho
+    corr[np.diag_indices(N)] = 1.0 #diagonal of correlation matrix is 1
+    # theoretical prediction for com diffusion coefficient except for numerical prefactors
+    comD = corr.sum() / N ** 2
+    #center of mass diffusion of equilibrium system minus numerical prefactors
+    Dg = 1. / N
+    return comD / Dg
 
 def draw_power_law_triangle(alpha, x0, width, orientation, base=10,
                             hypotenuse_only=False, **kwargs):
@@ -895,7 +783,17 @@ def analyze_step_sims(sims=['step_7x']):
         counts, contacts = contact_probability(1.0, f'csvs/{sim}', 96)
         plot_contact_map_temps(contacts, Ds, sim)
 
-
+def vary_contact_radius(sims, radii):
+    """ For each simulation in sims, plot a contact map for different capture radii to understand
+    the effect of `a` on contact map."""
+    for sim in sims:
+        simpath = Path(f'csvs/{sim}')
+        df = pd.read_csv(simpath / 'tape0.csv')
+        # extract temperatures
+        Ds = np.array(df[df['t'] == 0.0].D)
+        for a in radii:
+            counts, contacts = contact_probability(a, f'csvs/{sim}', 96)
+            plot_contact_map_temps(contacts, Ds, sim, a=a, tag=f'_a{a}')
 
 def analyze_sims(sims=['conf1_alt0_altT',
                        'conf1_alt0_sameT', 'conf1_altT']):

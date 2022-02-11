@@ -1,10 +1,18 @@
-"""Rouse polymer, analytical results.
+r"""
+Analytical results for Rouse polymers
+-------------------------------------
+
+Compute quantities such as the end-to-end distance, Green's function, monomer mean squared
+displacement, and looping probabilities based on the analytical results for a Rouse polymer.
+
 Notes
 -----
 There are two parameterizations of the "Rouse" polymer that are commonly used,
 and they use the same variable name for two different things.
 In one, N is the number of Kuhn lengths, and in the other, N is the number of
 beads, each of which can represent an arbitrary number of Kuhn lengths.
+In this module, N is taken to mean the number of Kuhn lengths. In bd.py, the number
+of Kuhn lengths is referred to as Nhat.
 """
 
 import numpy as np
@@ -16,13 +24,13 @@ import mpmath
 
 import os
 
+#number of modes to sum over
 _default_modes = 10000
 
 
 def terminal_relaxation(N, L, b, D):
     Nhat = L/b
     return b**2 * Nhat**2 / D
-
 
 @jit
 def rouse_mode(p, n, N=1):
@@ -53,8 +61,11 @@ def kp_over_kbt(p: float, b: float, N: float):
 #@jit(nopython=True)
 def linear_mid_msd(t, b, N, D, num_modes=_default_modes):
     """
+    Rouse monomer MSD.
     modified from Weber Phys Rev E 2010, Eq. 24.
-    TODO: check why jit is not working with latest version of numpy
+    TODO: this formula is slightly different from the one in
+    Theory of Polymer Dynamics (John T. Padding) and in Doi & Edwards.
+    But it yields all the correct scaling and matches simulation results...
     """
     rouse_corr = np.zeros_like(t)
     for p in range(1, num_modes+1):
@@ -102,55 +113,6 @@ def rouse_large_cvv_g(t, delta, deltaN, b, D):
         - 2*np.power(np.abs(t), 1/2)*gt
     )
 
-
-mod_file = os.path.abspath(__file__)
-mod_path = os.path.dirname(mod_file)
-
-
-def end2end_distance(r, lp, N, L):
-    """
-    For now, always returns values for ``r = np.linspace(0, 1, 50001)``.
-    Parameters
-    ----------
-    r : (N, ) float, array_like
-        the values at which to evaluate the end-to-end probability
-        distribution. ignored for now (TODO: fix)
-    lp : float
-        persistence length of polymer
-    N : int
-        number of beads in polymer
-    L : float
-        polymer length
-    Returns
-    -------
-    x : (5001,) float
-        ``np.linspace(0, 1, 5001)``
-    g : (5001,) float
-        :math:`P(|R| = x | lp, N, L)`
-    Notes
-    -----
-    Uses the gaussian chain whenever applicable, ssWLC tabulated values
-    otherwise. If you request parameters that require a WLC end-to-end
-    distance, the function will ValueError.
-    """
-    Delta = L/(lp*(N-1))  # as in wlcsim code
-    # WLC case
-    actual_r = np.linspace(0, 1, 5001)
-    if Delta < 0.01:  # as in wlcsim code
-        ValueError('end2end_distance: doesn\'t know how to compute WLC case!')
-    # ssWLC case
-    elif Delta < 10:  # as in wlcsim code
-        Eps = N/(2*lp*L)  # as in wlcsim code
-        file_num = round(100*Eps)  # index into file-wise tabulated values
-        file_name = os.path.join('pdata', 'out' + str(file_num) + '.txt')
-        file_name = os.path.join(mod_path, file_name)
-        G = np.loadtxt(file_name)
-        return (actual_r, G)
-    # GC case
-    else:
-        return (actual_r, end2end_distance_gauss(actual_r, b=2*lp, N=N, L=L))
-
-
 def end2end_distance_gauss(r, b, N, L):
     """ in each dimension... ? seems to be off by a factor of 3 from the
     simulation...."""
@@ -170,7 +132,11 @@ def gaussian_G(r, N, b):
 #@jit(nopython=True)
 def gaussian_Ploop(a, N, b):
     """Looping probability for two loci on a Gaussian chain N kuhn lengths
-    apart, when the Kuhn length is b, and the capture radius is a"""
+    apart, when the Kuhn length is b, and the capture radius is a
+
+    Note: jit not compatible with scipy.special. Supposedly, spycial is compatible
+    but to be tested.
+    """
     Nb2 = N*b*b
     return scipy.special.erf(a*np.sqrt(3/2/Nb2)) \
         - a*np.sqrt(6/np.pi/Nb2)/np.exp(3*a*a/2/Nb2)
@@ -189,6 +155,8 @@ def _cart_to_sph(x, y, z):
 def linear_mscd(t, D, Ndel, N, b=1, num_modes=_default_modes):
     r"""
     Compute mscd for two points on a linear polymer.
+    MSCD = mean squared change in distance of the vector r2 - r1.
+
     Parameters
     ----------
     t : (M,) float, array_like

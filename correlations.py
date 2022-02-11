@@ -1,4 +1,12 @@
-""" Ways to generate example correlation matrices. """
+r"""
+Ways of generating correlated noise
+-----------------------------------
+
+This module provides various methods to generate correlated noise in a simulation of an active
+Rouse polymer. A valid correlation matrix :math:`C_{ij} \in [0, 1]` must be positive definite and
+contains 1's on the diagonal. A covariance matrix is related to the underlying correlation matrix
+via :math:`\langle \eta_i \eta_j \rangle = 2 \sqrt{D_i} \sqrt{D_j} C_{ij}`.
+"""
 
 import numpy as np
 from numba import njit
@@ -6,6 +14,9 @@ from numba import njit
 def gaussian_correlation(N, length, s0, s0_prime, max):
     """ Generate a N x N covariance matrix, C, with a circular Guassian
     localized around (s0, s0_prime).
+
+    Note: I had to do some sketchy rescalings at the end to ensure that the matrix is PD.
+    Would not recommend this approach.
 
     Parameters
     ----------
@@ -39,7 +50,8 @@ def gaussian_correlation(N, length, s0, s0_prime, max):
     return C
 
 def psd_gaussian_correlation(N, length, A):
-    """ Generate a N x N correlation matrix with elements Ae^(-(s-s')^2/2L^2).
+    """ Generate a N x N correlation matrix with elements Ae^(-(s-s')^2/2L^2),
+    where L is `length`.
     Note all elements on each diagonal of the matrix will be the same.
 
     PROBLEM: This matrix is extremely ill conditioned for large N due to
@@ -88,11 +100,11 @@ def random_factors_correlation(N, k):
 
 def generate_correlations(identity_mat, rhos, d=3):
     """ Generate correlated noise via process in which each of N monomers is
-    assigned k binary identities, each of type 0 or 1, where noise acts on monomers of type 1
-    differently than on monomers of type 0.
+    assigned k binary identities, each of type -1 or 1, where noise acts on monomers of type 1
+    differently than on monomers of type -1.
 
     In particular, type 1 variables will all be correlated with correlation coefficient rho, and
-    type 0 variables will all be correlated with correlation coefficient rho. type 1 / type 0
+    type -1 variables will all be correlated with correlation coefficient rho. type 1 / type -1
     variables will be anti-correlated with coefficient -rho.
 
     Parameters
@@ -124,7 +136,7 @@ def generate_correlations(identity_mat, rhos, d=3):
         z = np.random.randn(num_type0, d)
         #correlate type 1 beads with x
         noise[identity_mat[i, :], :] += (rhos[i] * x + np.sqrt(1 - rhos[i]**2)*y)
-        #anti-correlate type 0 beads with x
+        #anti-correlate type -1 beads with x
         noise[~identity_mat[i, :], :] += (-rhos[i] * x + np.sqrt(1 - rhos[i]**2)*z)
     return noise
 
@@ -138,7 +150,8 @@ def generate_correlations_vars(identity_mat, rhos, stds, d=3):
     Parameters
     ----------
     identity_mat: (k, N) array-like
-        kth row contains 1s or 0s to assign monomers of type 1 vs type 0 for the kth feature
+        kth row contains 1s, 0s, or -1s to assign monomers of type 1, type 0, or type -1 for the
+        kth feature
     rhos : (k,) array-like
         Correlation coefficient associated with kth feature
     stds : (N,) array-like
@@ -177,6 +190,10 @@ def generate_correlations_vars(identity_mat, rhos, stds, d=3):
     return noise
 
 def covariance_from_noise(identity_mat, rhos, stds, niter=1000, **kwargs):
+    """ Compute the covariance matrix expected from the noise generation process
+    in `generate_correlation_vars`. Draw `niter` samples of the noise and calculate
+    the average :math:`\langle \eta_i \eta_j \rangle`."""
+
     k, N = identity_mat.shape
     #sum of (eta_i * eta_j)
     covariance = np.zeros((N, N))
