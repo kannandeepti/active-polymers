@@ -91,12 +91,14 @@ def test_bd_sim_confined(N=101, L=100, b=1, D=1):
     X = jit_confined_srk1(N, L, b, np.tile(D, N), 1.0, 10.0, 10.0, 10.0, t, t_save=t_save)
     return X, t_save
 
-def test_bd_clean(N=101, L=100, b=1, D=1.0, a=0.445, tmax=350.0, h=0.001):
+def test_bd_clean(N=101, L=100, b=1, D=1.0, a=0.5, tmax=350.0, h=0.001):
     """ TODO: debug"""
     D = np.tile(D, N)
     t_save = np.linspace(0, tmax, 100 + 1)
-    X, nlupdates = scr_avoidNL_srk2(N, L, b, D, a, h, tmax, t_save)
-    return X, nlupdates, t_save
+    t_msd = np.logspace(-2, 2, 10)
+    X, msd = scr_avoidNL_srk2(N, L, b, D, a, h, tmax, t_save=t_save,
+                                    t_msd=t_msd)
+    return X, msd, t_save
 
 def run_correlated(i, N, L, b, D, filedir, length=10, 
                   s0=30, s0_prime=70, max=0.9):
