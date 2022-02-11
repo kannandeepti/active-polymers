@@ -146,7 +146,7 @@ def run_identity_correlated(i, N, L, b, D, filedir, mat, rhos, confined,
             raise
     tmax = 1e5
     h = 0.001
-    t_save = np.linspace(350.0, tmax, 1000 + 1)
+    t_save = np.linspace(350.0, tmax, 100 + 1)
     t_msd = np.logspace(-2, 5, 100)
     if confined:
         X = conf_identity_core_noise_srk2(N, L, b, D, h, tmax, t_save, Aex, rx,
@@ -238,7 +238,7 @@ if __name__ == '__main__':
     #D = np.tile(0.25, N)
     #D[10:30] = 1.75
     #D[50:80] = 1.75
-    filedir = Path('csvs/corr_msd1')
+    filedir = Path('csvs/corr_msd_rho.25')
     """
     tic = time.perf_counter()
     X, t_save = test_identity_correlated_noise()
@@ -252,17 +252,18 @@ if __name__ == '__main__':
     #t = np.linspace(0, 1e5, int(1e8) + 1)
     #D[int(N//2)] = 10 #one hot bead
     #alternating hot and cold regions
-    
-    D[0:33] = 5.0
-    D[66:] = 5.0
-    mat = np.zeros((1, N))
-    mat[0, 0:11] = 1.0
-    mat[0, 22:33] = -1.0
-    mat[0, 33:44] = 1.0
-    mat[0, 55:66] = -1.0
-    mat[0, 66:77] = 1.0
-    mat[0, 88:] = - 1.0 
-    rhos = np.array([0.5])
+    #simulation `1feat_rho.5_sameT`
+    #Define hot to be 1.75 and cold to be 0.25 so mean D = 1.0
+    D = np.tile(0.25, N)
+    D[0:20] = 1.75
+    D[40:60] = 1.75
+    D[80:] = 1.75
+    """
+    mat = np.ones((1, N))
+    mat[0, 10:30] = -1.0
+    mat[0, 50:80] = -1.0
+    rhos = np.array([0.25])
+
     file = Path(filedir)/'idmat.csv'
     try:
         file.parent.mkdir(parents=True)
