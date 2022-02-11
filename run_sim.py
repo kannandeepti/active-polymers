@@ -165,7 +165,7 @@ def run_identity_correlated(i, N, L, b, D, filedir, mat, rhos, confined,
     df['t_msd'] = t_msd
     df.to_csv(msd_file)
 
-def run_msd(i, N, L, b, D, filedir, h=None, tmax=None):
+def run_msd(i, N, L, b, D, a=0.5, filedir, h=None, tmax=None):
     """ Run one simulation of a length L chain with N beads,
     Kuhn length b, and array of diffusion coefficients D."""
     file = Path(filedir)/f'tape{i}.csv'
@@ -179,10 +179,12 @@ def run_msd(i, N, L, b, D, filedir, h=None, tmax=None):
     if h is None:
         h = 0.001
     if tmax is None:
-        tmax = 1.0e5
-    t_save = np.linspace(350.0, tmax, 1000 + 1)
+        tmax = 1.0e4
+    t_save = np.linspace(350.0, tmax, 100 + 1)
     t_msd = np.logspace(-2, 5, 100)
-    X, msd = with_srk1(N, L, b, D, h, tmax, t_save=t_save, t_msd=t_msd)
+    X, msd = scr_avoidNL_srk2(N, L, b, D, a, h, tmax, t_save=t_save,
+                              t_msd=t_msd)
+    #X, msd = with_srk1(N, L, b, D, h, tmax, t_save=t_save, t_msd=t_msd)
     dfs = []
     for i in range(X.shape[0]):
         df = pd.DataFrame(X[i, :, :])

@@ -804,6 +804,7 @@ def scr_avoidNL_srk2(N, L, b, D, a, h, tmax, t_save=None, t_msd=None,
     x = np.zeros(t_save.shape + x0.shape)
     # setup for saving only requested time points
     save_i = 0
+    save_inds = np.rint(t_save / h)
     if 0 == t_save[save_i]:
         x[0] = x0
         save_i += 1
@@ -841,7 +842,7 @@ def scr_avoidNL_srk2(N, L, b, D, a, h, tmax, t_save=None, t_msd=None,
                 diff = mean / N
                 msds[msd_i, -1] = diff @ diff
                 msd_i += 1
-        if np.abs(i * h - t_save[save_i]) < rtol * np.abs(t_save[save_i]):
+        if i == save_inds[save_i]:
             x[save_i] = x0
             save_i += 1
     return x, msds
