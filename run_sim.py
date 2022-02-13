@@ -167,7 +167,7 @@ def run_identity_correlated(i, N, L, b, D, filedir, mat, rhos, confined,
     df['t_msd'] = t_msd
     df.to_csv(msd_file)
 
-def run_msd(i, N, L, b, D, a=0.5, filedir, h=None, tmax=None):
+def run_msd(i, N, L, b, D, a, filedir, h=None, tmax=None):
     """ Run one simulation of a length L chain with N beads,
     Kuhn length b, and array of diffusion coefficients D."""
     file = Path(filedir)/f'tape{i}.csv'
@@ -181,9 +181,9 @@ def run_msd(i, N, L, b, D, a=0.5, filedir, h=None, tmax=None):
     if h is None:
         h = 0.001
     if tmax is None:
-        tmax = 1.0e4
-    t_save = np.linspace(350.0, tmax, 100 + 1)
-    t_msd = np.logspace(-2, 5, 100)
+        tmax = 1.0e4 + h
+    t_save = 350.0 * np.arange(0, np.floor(tmax / 350.0) + 1)
+    t_msd = np.logspace(-2, 4, 86)
     X, msd = scr_avoidNL_srk2(N, L, b, D, a, h, tmax, t_save=t_save,
                               t_msd=t_msd)
     #X, msd = with_srk1(N, L, b, D, h, tmax, t_save=t_save, t_msd=t_msd)
@@ -235,10 +235,12 @@ if __name__ == '__main__':
     L = 100
     b = 1
     D = np.tile(1, N)
+    B = 2 * np.pi / 25
+    D = 0.5 * np.cos(B * np.arange(0, N)) + 1
     #D = np.tile(0.25, N)
     #D[10:30] = 1.75
     #D[50:80] = 1.75
-    filedir = Path('csvs/corr_msd_rho.25')
+    filedir = Path('csvs/scr_cos3x')
     """
     tic = time.perf_counter()
     X, t_save = test_identity_correlated_noise()
@@ -246,8 +248,6 @@ if __name__ == '__main__':
     print(f'Ran simulation in {(toc - tic):0.4f}s')
     #define cosine wave of temperature activity with amplitude 5 times equilibrium temperature
     #period of wave is 25, max is 11, min is 1
-    #B = 2 * np.pi / 25
-    #D = 0.9 * np.cos(B * np.arange(0, N)) + 1
     #reduce time step by order of magnitude due to higher diffusivity
     #t = np.linspace(0, 1e5, int(1e8) + 1)
     #D[int(N//2)] = 10 #one hot bead
@@ -258,7 +258,6 @@ if __name__ == '__main__':
     D[0:20] = 1.75
     D[40:60] = 1.75
     D[80:] = 1.75
-    """
     mat = np.ones((1, N))
     mat[0, 10:30] = -1.0
     mat[0, 50:80] = -1.0
@@ -274,9 +273,10 @@ if __name__ == '__main__':
     #save identity matrix for future reference
     df = pd.DataFrame(mat)
     df.to_csv(file)
+    """
     print(f'Running simulation {filedir.name}')
-    func = partial(run_identity_correlated, N=N, L=L, b=b, D=D,
-                   filedir=filedir, mat=mat, rhos=rhos, confined=False)
+    func = partial(run_msd, N=N, L=L, b=b, D=D, a=0.5,
+                   filedir=filedir)
     tic = time.perf_counter()
     pool_size = 16
     N = 96
@@ -284,5 +284,4 @@ if __name__ == '__main__':
         result = p.map(func, np.arange(0, N))
     toc = time.perf_counter()
     print(f'Ran simulation in {(toc - tic):0.4f}s')
-    """
 
