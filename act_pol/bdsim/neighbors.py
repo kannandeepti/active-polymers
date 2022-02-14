@@ -13,7 +13,7 @@ Existing packages:
     - But we don't want k nearest neighbors, we want neighbors within a cutoff...
 
 Problem is these functions need to be @jit-able; otherwise, cannot integrate with BD code.
-Instead, start by copying Eleni's matlab code for cell-linked Verlet list. Let's time this
+Instead, start by implementing cell-linked Verlet list. Let's time this
 and compare to existing packages.
 """
 import numpy as np
