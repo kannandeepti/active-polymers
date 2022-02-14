@@ -1,9 +1,10 @@
 """ Script to analyze brownian dynamics simulations of active polymer."""
 
 import numpy as np
-from rouse import linear_mid_msd, end2end_distance_gauss, gaussian_Ploop
-from correlations import *
-from files import *
+from .rouse import linear_mid_msd, end2end_distance_gauss, gaussian_Ploop
+from ..bdsim.correlations import *
+from .files import *
+
 import matplotlib as mpl
 from matplotlib import pyplot as plt
 import matplotlib.colors as colors

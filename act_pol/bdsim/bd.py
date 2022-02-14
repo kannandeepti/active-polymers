@@ -3,36 +3,29 @@ Simulations of Active Rouse polymers (based on wlcsim.bd.rouse)
 ---------------------------------------------------------------
 
 We adapt the wlcsim.bd.rouse module developed by the Spakowitz Lab
-to perform Brownian dynamics simulations of active Rouse polymers.
-At equilibrium, all monomers of the chain experience the same magnitude
-of stochastic kicks, i.e. are at uniform temperature. Out of equilibrum,
-activity along the polymer (i.e. action of motor proteins and enzymes
-that walk along the DNA) can induce stronger kicks along certain regions
-of the chain, which can be modeled as a local increase in the effective
-temperature of the monomer. More generally, activity at different regions
-of the polymer could be correlated, for example, due to an enhancer regulating
-two promoters, or a master transcription factor turning on multiple genes.
-
-Here we explore a minimal model in which activity is encoded via correlations
-in athermal flucutations experienced by monomers of a Rouse chain.
-The act_pol.analyze module then allows one to compute the mean distance
-between all pairs of monomers, as well as contact probabilities. The act_pol.msd module
-can be used to study dynamics of such correlated active systems, such as the relaxation of the
-monomer mean squared displacement (MSD) and center of mass MSD.
+to perform Brownian dynamics simulations of active Rouse polymers
+with correlated noise. Simulations are accelerated using just in
+time compilation (jit) using the package Numba.
 
 Contains routines for easily parameterizing Rouse polymer simulations and some
 simple pre-built example simulators:
-    1. **with_integrator**: Example Rouse simulator. Uses a discrete Rouse
+    1. **with_srk1**: Example Rouse simulator with 1st order SRK integrator. Uses a discrete Rouse
        chain to approximate a semiflexible chain with parameters ``(N, L, b,
        D)``", where :math:`N` is the number of beads, :math:`L` is the physical
        length of the chain (see note below), :math:`b` is the Kuhn length, and
-       :math:`D` is the diffusivity of a single Kuhn length of the polymer.
+       :math:`D` is an array specifying the diffusion coefficients of the N monomers.
+       If the same value is specified for all N beads, then we recover equilibrium
+       Rouse polymer dynamics.
     2. **recommended_dt**: Given ``(N, L, b, D)``, compute the recommended
-       maximum step size for a Rouse polymer simulation.
+       maximum step size for an equilibirum Rouse polymer simulation.
     3. **measured_D_to_rouse**: compute the diffusivity-per-Kuhn length
        (:math:`D`, required as input for simulations) from a log-log linear
        regression fit to an MSD with slope 1/2 (the usual way to measure
        diffusivity of a polymer bead).
+
+Variations on the basic simulator in `with_srk1` are also available, including
+a version of the code with a second order stochastic runge kutta integrator.
+
 .. note::
     While a Rouse chain does not technically have a well-defined length in the
     traditional sense of arc-length (due to its fractal nature), since our
@@ -120,13 +113,11 @@ behavior only continues down to the length scale of a single "bead", thus
 matching the simulation at arbitrarily short time scales. (Notice that we abide
 by the warning above. Our ``Nhat`` is :mod:`wlcsim.analytical.rouse`'s ``N``).
 """
-#from .runge_kutta import rk4_thermal_lena
-
 from numba import njit
 import numpy as np
-from correlations import generate_correlations_vars
-from forces import *
-from neighbors import NeighborList
+from .correlations import generate_correlations_vars
+from .forces import *
+from .neighbors import NeighborList
 
 def recommended_dt(N, L, b, D):
     r"""
@@ -254,7 +245,9 @@ def with_srk1(N, L, b, D, h, tmax, t_save=None, t_msd=None, msd_start_time=None,
     It was determined empirically that adding an extra parameter ``t_save``
     controlling which time points to keep does not slow function down.
 
-    Simulate a Rouse polymer made of N beads free in solution.
+    Simulate a Rouse polymer made of N beads free in solution. Save conformations
+    at specified time points (t_save) and calculate the mean squared displacement of all N
+    monomers as well as the center of mass MSD at specified time points (t_msd).
 
     Parameters
     ----------
@@ -286,22 +279,28 @@ def with_srk1(N, L, b, D, h, tmax, t_save=None, t_msd=None, msd_start_time=None,
 
     Returns
     -------
-    (Nt, N, 3) array_like of float
+    X : (Nt, N, 3) array_like of float
         The positions of the *N* beads at each of the *Nt* time points.
+    msds : (Nm, N+1) array_like of float
+        Mean squared displacement of the *N* beads and center of mass at the *Nm* time points
+
     Notes
     -----
-    The polymer beads can be described by the discrete Rouse equations
+    The Lanvein equation for the ith beads is given by
     .. math::
         \xi \frac{dx(i, t)}{dt} = - k (x(i, t) - x(i+1, t))
                                   - k (x(i, t) - x(i-1, t))
-                                  + R(t)
-    where :math:`\xi = k_BT/D`, :math:`k = 3k_BT/b^2`, :math:`b` is the Kuhn
-    length of the polymer, :math:`D` is the self-diffusion coefficient of a
-    bead, and :math:`R(t)/\xi` is a delta-correlated stationary Gaussian
-    process with mean zero and :math:`\langle R(t) R(t')/\xi^2 \rangle =
-    2DI\delta(t-t')`.
+                                  + \eta_i(t)
+    where :math:`\xi` is the friction coefficient, :math:`k = 3k_BT/b^2` is the spring constant,
+    :math:`b` is the Kuhn length of the polymer, :math:`D` is the self-diffusion coefficient of a
+    bead, and :math:`\eta_i(t)/\xi` is a delta-correlated stationary Gaussian
+    process with mean zero and :math:`\langle \eta_i(t) \eta_j(t') / \xi^2\rangle =
+    2D_i \delta_{ij} \delta(t-t')`.
     Notice that in practice, :math:`k/\xi = 3D/b^2`, so we do not need to
     include mass units (i.e. there's no dependence on :math:`k_BT`).
+
+    Force calculations, initialization steps, and MSD calculations are in-lined to make code
+    as efficient as possible. However, this is not the cleanest way of writing this code!
     """
     rtol = 1e-5
     # derived parameters
@@ -329,6 +328,9 @@ def with_srk1(N, L, b, D, h, tmax, t_save=None, t_msd=None, msd_start_time=None,
             msd_start_pos = x0.copy() #N x 3
         else:
             msd_start_ind = int(msd_start_time // h)
+
+    if t_save is None:
+        t_save = np.linspace(0.0, tmax, 101)
 
     x = np.zeros(t_save.shape + x0.shape)
     save_i = 0
@@ -382,7 +384,9 @@ def with_srk1(N, L, b, D, h, tmax, t_save=None, t_msd=None, msd_start_time=None,
         if i == save_inds[save_i]:
             x[save_i] = x0
             save_i += 1
-    return x, msds
+    if t_msd is not None:
+        return x, msds
+    return x
 
 @njit
 def jit_confined_srk1(N, L, b, D, Aex, rx, ry, rz, t, t_save=None, Deq=1):
@@ -498,7 +502,7 @@ def jit_confined_srk1(N, L, b, D, Aex, rx, ry, rz, t, t_save=None, Deq=1):
 
 @njit
 def correlated_noise(N, L, b, D, C, h, tmax, t_save, Deq=1):
-    """ Add correlation matrix for noise. Draw multivariate noise by computing Cholesky
+    r""" Add correlation matrix for noise. Draw multivariate noise by computing Cholesky
     decomposition of correlation matrix and multiplying the lower triangle matrix by the (N x 3)
     matrix of standard normal random variables. This still uses the SRK1 scheme from above.
 
@@ -507,12 +511,26 @@ def correlated_noise(N, L, b, D, C, h, tmax, t_save, Deq=1):
     D : array-like (N,)
         diffusivity of each monomer (> 0)
     C : array-like (N, N)
-        correlation matrix (values from -1 to 1), must be symmetric
+        correlation matrix (values from -1 to 1), must be symmetric, positive definite
     h : float
         time step
     tmax : float
         maximum simulation time
+
+    Notes
+    -----
+    The Lanvein equation for the ith bead,
+    .. math::
+        \xi \frac{dx(i, t)}{dt} = - k (x(i, t) - x(i+1, t))
+                                  - k (x(i, t) - x(i-1, t))
+                                  + \eta_i(t)
+    is the same as above except the noise term is modified such that
+    :math:`\eta_i(t)/\xi` is a delta-correlated stationary Gaussian
+    process with mean zero and
+    :math:`\langle \eta_i(t) \eta_j(t') / \xi^2\rangle = 2 \sqrt{D_i D_j} C_{ij} \delta(t-t')`,
+    where :math:`C_{ij} \in [-1, 1]` is the correlation coefficient of bead i and bead j.
     """
+
     rtol = 1e-5
     # derived parameters
     L0 = L / (N - 1)  # length per bead
@@ -538,7 +556,7 @@ def correlated_noise(N, L, b, D, C, h, tmax, t_save, Deq=1):
     cov = C * np.outer(sigma, sigma)
     cky = np.linalg.cholesky(cov) #N x N matrix
     # at each step i, we use data (x,t)[i-1] to create (x,t)[i]
-    # in order to make it easy to pull into a new functin later, we'll call
+    # in order to make it easy to pull into a new function later, we'll call
     # t[i-1] "t0", old x (x[i-1]) "x0", and t[i]-t[i-1] "h".
     ntimesteps = int(tmax // h) + 1 #including 0th time step
     # -1 or 1, p=1/2
@@ -757,7 +775,9 @@ def conf_identity_core_noise_srk2(N, L, b, D, h, tmax, t_save,
 def scr_avoidNL_srk2(N, L, b, D, a, h, tmax, t_save=None, t_msd=None,
                      msd_start_time=None, Deq=1):
     """ Simulate a self-avoiding Rouse polymer via a soft core (harmonic)
-    repulsive potential. With h=0.001, this works! Roughly 10 pairs of monomers
+    repulsive potential using a 2nd order stochasting runge kutta integrator.
+
+    With h=0.001, this works! Roughly 10 pairs of monomers
     may be overlapping at any given time but overlaps decay in a matter of a few time steps.
 
     Parameters

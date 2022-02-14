@@ -8,9 +8,9 @@ from numba import njit, jit
 from pathlib import Path
 import matplotlib as mpl
 from matplotlib import pyplot as plt
-from rouse import linear_mid_msd
-from files import *
-from analyze import draw_power_law_triangle, plot_cov_from_corr
+from .rouse import linear_mid_msd
+from .files import *
+from .analyze import draw_power_law_triangle, plot_cov_from_corr
 
 params = {'axes.edgecolor': 'black',
                   'axes.facecolor':'white',
