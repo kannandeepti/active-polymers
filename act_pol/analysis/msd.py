@@ -181,6 +181,25 @@ def rouse_msd(X, t_save, b=1, D=1, L=100, N=101, theory=True):
     fig.tight_layout()
     plt.show()
 
+def analytical_com_diffusion(simdir):
+    """ For a given simulation, extract covariance matrix, compute analytical center of mass
+    diffusion coefficient (comD) and return ratio of comD to center of mass diffusion coefficient
+    of a Rouse polymer."""
+
+    D, idmat, rhos = extract_cov(simdir)
+    N = len(D)
+    rho = rhos[0]
+    corr = np.outer(idmat, idmat)
+    corr *= rho
+    corr[np.diag_indices(N)] = 1.0 #diagonal of correlation matrix is 1
+    cov = np.sqrt(np.outer(D, D)) * corr #cov(i, j) = 2 sqrt(D_i) sqrt(D_j) C_{ij}
+    com_diffusion = cov.sum()/ N**2
+    # theoretical prediction for com diffusion coefficient except for numerical prefactors
+    comD = corr.sum() / N ** 2
+    #center of mass diffusion of equilibrium system minus numerical prefactors
+    Dg = 1. / N
+    return com_diffusion
+
 def msd_from_files(simdir, ntraj=96, b=1.0, corr=False):
     """ Plot subdiffusive dynamics of Rouse monomers from the MSD files
     written to disc during the simulation."""
@@ -188,23 +207,22 @@ def msd_from_files(simdir, ntraj=96, b=1.0, corr=False):
     simname = simdir.name
     df = pd.read_csv(simdir / 'tape0.csv')
     # extract temperatures
+    D, mat, rhos = extract_cov(simdir)
     D = np.array(df[df['t'] == 350.0].D)
     if (simdir / 'idmat.csv').is_file():
-        df = pd.read_csv(simdir / 'idmat.csv')
-        mat = np.array(df)
-        mat = mat[0, 1:].reshape((1, 101))
-        rhos = np.array([0.5])
         plot_cov_from_corr(mat, rhos, D, simname)
         mat = mat.reshape((101,))
     N = len(D)
-    cold_msd_ave = np.zeros((99,)) #+1 if corr = True
-    hot_msd_ave = np.zeros((99,)) #-1 if corr=True
-    com_msd_ave = np.zeros((99,))
+    df = pd.read_csv(simdir / f'msds0.csv')
+    ntmsd = len(df['t_msd'])
+    cold_msd_ave = np.zeros((ntmsd,)) #+1 if corr = True
+    hot_msd_ave = np.zeros((ntmsd,)) #-1 if corr=True
+    com_msd_ave = np.zeros((ntmsd,))
     for i in range(ntraj):
         df = pd.read_csv(simdir/f'msds{i}.csv')
         df = df.drop('Unnamed: 0', axis=1)
-        com_msd_ave += df.iloc[:-1, N]
-        mondf = df.iloc[:-1, 0:N]
+        com_msd_ave += df.iloc[:, N]
+        mondf = df.iloc[:, 0:N]
         if corr:
             cold_msd_ave += mondf.iloc[:, mat == -1.0].mean(axis=1)
             hot_msd_ave += mondf.iloc[:, mat == 0.0].mean(axis=1)
@@ -215,7 +233,7 @@ def msd_from_files(simdir, ntraj=96, b=1.0, corr=False):
     hot_msd_ave /= ntraj
     com_msd_ave /= ntraj
     fig, ax = plt.subplots()
-    t_msd = np.array(df['t_msd'][:-1])
+    t_msd = np.array(df['t_msd'])
     slope, intercept, r, p, se = sp.stats.linregress(t_msd, com_msd_ave)
     print(f'Slope of center of mass MSD: {slope}')
     print(f'Ratio of equilibrium com MSD to noneq com MSD: {(6 * np.mean(D) / N) / slope}')
@@ -226,14 +244,19 @@ def msd_from_files(simdir, ntraj=96, b=1.0, corr=False):
     t1 = b ** 2 / (3 * np.mean(D) * np.pi)
     t1 = 10.0
     analytical_msd = linear_mid_msd(t_msd, 1.0, N, np.mean(D), num_modes=int(N / 2))
-    ax.plot(t_msd, analytical_msd, 'k-', label=r'theory, $T_{\rm eq}$')
-    ax.plot(t_msd, 6 * np.mean(D) * t_msd / N, 'k--', label=r'$6D_G t$')
+    ax.plot(t_msd, analytical_msd, 'k-', label=r'Rouse, $T_{\rm eq}$')
+    comD = analytical_com_diffusion(simdir)
+    ax.plot(t_msd, 6 * comD * t_msd, 'k--', label=r'Theory ($6D_{COM} t$)')
     if corr:
         ax.plot(t_msd, cold_msd_ave, 'b--', label='-1')
         ax.plot(t_msd, hot_msd_ave, 'r--', label='0')
     else:
-        ax.plot(t_msd, cold_msd_ave, 'b--', label = 'cold')
-        ax.plot(t_msd, hot_msd_ave, 'r--', label='hot')
+        if D.min() == D.max():
+            mon_msd_ave = (cold_msd_ave + hot_msd_ave)/2
+            ax.plot(t_msd, mon_msd_ave, 'b--', label=r'simulation, $T_{\rm eq}$')
+        else:
+            ax.plot(t_msd, cold_msd_ave, 'b--', label = 'cold')
+            ax.plot(t_msd, hot_msd_ave, 'r--', label='hot')
     ax.plot(t_msd, com_msd_ave, 'g.-', label=f'com, $D={(slope / (6.0 * np.mean(D) / N)):.2f}D_G$')
     ax.set_xlim(t_msd[0], t_msd[-1])
     ax.set_ylim(bottom = 10 ** (-4), top=10 ** 4)

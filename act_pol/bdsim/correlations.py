@@ -98,6 +98,33 @@ def random_factors_correlation(N, k):
     S = np.diag(1./np.sqrt(np.diag(S))) @ S @ np.diag(1./np.sqrt(np.diag(S)))
     return S
 
+def compartmentalization_pattern(N, c1, c2, p=0.8, start1=True):
+    """ Make a NxN correlation matrix that resembles a compartmentalization pattern
+    from Hi-C. Returns binary sequence where 1's correspond to active regions and 0's
+    correspond to inactive regions."""
+    identities = np.ones(N,)
+    i = 0
+    if start1:
+        id = 1
+    else:
+        id = -1
+    while i < N:
+        block = int(np.rint(np.random.exponential(c1)))
+        if (i + block > N):
+            break
+        identities[i:(i + block)] = id
+        i += block
+        if np.random.binomial(1, p):
+            block = int(np.rint(np.random.exponential(c2))) #smaller block
+        else:
+            block = int(np.rint(np.random.exponential(c1)))
+        if (i + block > N):
+            break
+        identities[i : (i + block)] = -1*id
+        i += block
+    return identities
+
+
 def generate_correlations(identity_mat, rhos, d=3):
     """ Generate correlated noise via process in which each of N monomers is
     assigned k binary identities, each of type -1 or 1, where noise acts on monomers of type 1

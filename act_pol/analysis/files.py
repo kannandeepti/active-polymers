@@ -3,7 +3,29 @@
 
 import numpy as np
 from pathlib import Path
+import subprocess
 import pandas as pd
+
+def pull_down_data(simdirs, remote='dkannan@eofe8.mit.edu:~/git-remotes/active-polymers/csvs',
+                   local='csvs'):
+    """ Script to transfer output of simulation on remote cluster to local directory.
+
+    TODO: debug
+
+    Parameters
+    ----------
+    remote : str or Path
+        path to directory containing simulation output on remote
+
+    """
+
+    remote = Path(remote)
+    local = Path(local)
+    for sim in simdirs:
+        remotesim = remote / sim
+        localsim = local / sim
+        localsim.mkdir() #this will raise a FileExistsError if directory already exists
+        subprocess.run(f'rsync {remotesim}/*.csv {localsim}/')
 
 def process_sim(file):
     df = pd.read_csv(file)

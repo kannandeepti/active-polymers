@@ -773,9 +773,9 @@ def conf_identity_core_noise_srk2(N, L, b, D, h, tmax, t_save,
 
 @njit
 def scr_avoidNL_srk2(N, L, b, D, a, h, tmax, t_save=None, t_msd=None,
-                     msd_start_time=None, Deq=1):
+                     msd_start_time=None, mat=None, rhos=None, Deq=1):
     """ Simulate a self-avoiding Rouse polymer via a soft core (harmonic)
-    repulsive potential using a 2nd order stochasting runge kutta integrator.
+    repulsive potential using a 2nd order stochastic runge kutta integrator.
 
     With h=0.001, this works! Roughly 10 pairs of monomers
     may be overlapping at any given time but overlaps decay in a matter of a few time steps.
@@ -797,7 +797,7 @@ def scr_avoidNL_srk2(N, L, b, D, a, h, tmax, t_save=None, t_msd=None,
     Nhat = L / b  # number of Kuhn lengths in chain
     Rg = Nhat * b ** 2 / 6 #estimated radius of gyration of the chain
     box_size = 3 * Rg #length of edge of simulation domain
-    Dhat = D * N / Nhat  # diffusion coef of a discrete gaussian chain bead
+    Dhat = D * N / Nhat  # diffusion coef of a discrete gaussian chain bead500
     Deq = Deq * N / Nhat
     # set spring constant to be 3D/b^2 where D is the equilibrium diffusion coefficient
     k_over_xi = 3 * Deq / bhat ** 2
@@ -839,12 +839,18 @@ def scr_avoidNL_srk2(N, L, b, D, a, h, tmax, t_save=None, t_msd=None,
         if neighlist.checkNL(x0):
             cl, nl = neighlist.updateNL(x0)
         # noise matrix (N x 3)
-        noise = (sigma * np.random.randn(*x0.shape).T).T
+        if mat and rhos:
+            noise = generate_correlations_vars(mat, rhos, sigma)
+        else:
+            noise = (sigma * np.random.randn(*x0.shape).T).T
         # force at position a
         Fa = f_spring_scr_NL(x0, k_over_xi, ks_over_xi, a, dsq, cl, nl, box_size)
         x1 = x0 + h * Fa + noise
         # force at position b
-        noise = (sigma * np.random.randn(*x0.shape).T).T
+        if mat and rhos:
+            noise = generate_correlations_vars(mat, rhos, sigma)
+        else:
+            noise = (sigma * np.random.randn(*x0.shape).T).T
         Fb = f_spring_scr_NL(x1, k_over_xi, ks_over_xi, a, dsq, cl, nl, box_size)
         x0 = x0 + 0.5 * (Fa + Fb) * h + noise
         #msd calculation

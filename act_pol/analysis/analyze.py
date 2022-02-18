@@ -174,10 +174,12 @@ def two_point_msd(simdir, ntraj, N=101, relative=None, squared=False):
     for j in range(ntraj):
         X, t_save = process_sim(simdir / f'tape{j}.csv')
         ntimes, _, _ = X.shape
-        nreplicates = ntraj * len(range(int(ntimes // 2), ntimes, 5))
+        nreplicates = ntraj * (ntimes - 1)
+        #nreplicates = ntraj * len(range(int(ntimes // 2), ntimes, 5))
         if relative:
             Xeq, _ = process_sim(Path(relative) / f'tape{j}.csv')
-        for i in range(int(ntimes//2), ntimes, 5):
+        for i in range(1, ntimes):
+        #for i in range(int(ntimes//2), ntimes, 5):
             #for temperature modulations
             dist = pdist(X[i, :, :], metric=metric)
             Y = squareform(dist)
@@ -348,8 +350,12 @@ def mdmap_abs_rel(dist, eqdist, temps, simname, relative=False, width=5, **kwarg
     ax_left.set_xticks([])
     ax.set_xticks([])
     ax.set_yticks([])
-    im2 = ax.imshow(rel_dist[::-1, :], norm=colors.CenteredNorm(), cmap=cmap_relative, **kwargs)
-    im = ax.imshow(dist[::-1, :], cmap=cmap_distance, **kwargs)
+    if relative:
+        im = ax.imshow(dist[::-1, :], cmap=cmap_distance, **kwargs)
+        im2 = ax.imshow(rel_dist[::-1, :], norm=colors.CenteredNorm(), cmap=cmap_relative, **kwargs)
+    else:
+        im2 = ax.imshow(rel_dist[::-1, :], norm=colors.CenteredNorm(), cmap=cmap_relative, **kwargs)
+        im = ax.imshow(dist[::-1, :], cmap=cmap_distance, **kwargs)
     ax_bottom.imshow(D, cmap='coolwarm', vmin=D.min(), vmax=D.max())
     ax_left.imshow(D.T[::-1, :], cmap='coolwarm', vmin=D.min(), vmax=D.max())
     cbar = fig.colorbar(im, cax=cax, label=r'MSD $\langle \Delta r^2_{ij} \rangle$')
@@ -622,23 +628,6 @@ def plot_chain(simdir, ntraj=96, mfig=None, **kwargs):
         mlab.points3d(positions[i, 0], positions[i, 1], positions[i, 2], scale_factor=5, figure=mfig,
                       color=colors[i], **kwargs)
     return mfig
-
-def analytical_com_diffusion(simdir):
-    """ For a given simulation, extract covariance matrix, compute analytical center of mass
-    diffusion coefficient (comD) and return ratio of comD to center of mass diffusion coefficient
-    of a Rouse polymer."""
-
-    D, idmat, rhos = extract_cov(simdir)
-    N = len(D)
-    rho = rhos[0]
-    corr = np.outer(idmat, idmat)
-    corr *= rho
-    corr[np.diag_indices(N)] = 1.0 #diagonal of correlation matrix is 1
-    # theoretical prediction for com diffusion coefficient except for numerical prefactors
-    comD = corr.sum() / N ** 2
-    #center of mass diffusion of equilibrium system minus numerical prefactors
-    Dg = 1. / N
-    return comD / Dg
 
 def draw_power_law_triangle(alpha, x0, width, orientation, base=10,
                             hypotenuse_only=False, **kwargs):
