@@ -10,6 +10,8 @@ via :math:`\langle \eta_i \eta_j \rangle = 2 \sqrt{D_i} \sqrt{D_j} C_{ij}`.
 
 import numpy as np
 from numba import njit
+from scipy import stats
+
 
 def gaussian_correlation(N, length, s0, s0_prime, max):
     """ Generate a N x N covariance matrix, C, with a circular Guassian
@@ -103,27 +105,34 @@ def compartmentalization_pattern(N, c1, c2, p=0.8, start1=True):
     from Hi-C. Returns binary sequence where 1's correspond to active regions and 0's
     correspond to inactive regions."""
     identities = np.ones(N,)
+    #define discrete probability distribution with pmf(x) = x/d * exp(-x/d)
+    grid = np.arange(0, N)
+    pk = grid/(0.5*c1) * np.exp(-grid / (0.5*c1))
+    pk /= np.sum(pk)
+    rvc1 = stats.rv_discrete(name='custm', values=(grid, pk))
+    pk2 = grid/(0.5*c2) * np.exp(-grid / (0.5*c2))
+    pk2 /= np.sum(pk2)
+    rvc2 = stats.rv_discrete(name='custm2', values=(grid, pk2))
     i = 0
     if start1:
         id = 1
     else:
         id = -1
     while i < N:
-        block = int(np.rint(np.random.exponential(c1)))
+        block = rvc1.rvs()
         if (i + block > N):
             break
         identities[i:(i + block)] = id
         i += block
         if np.random.binomial(1, p):
-            block = int(np.rint(np.random.exponential(c2))) #smaller block
+            block = rvc2.rvs() #smaller block
         else:
-            block = int(np.rint(np.random.exponential(c1)))
+            block = rvc1.rvs()
         if (i + block > N):
             break
         identities[i : (i + block)] = -1*id
         i += block
     return identities
-
 
 def generate_correlations(identity_mat, rhos, d=3):
     """ Generate correlated noise via process in which each of N monomers is
