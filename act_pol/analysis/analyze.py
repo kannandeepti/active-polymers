@@ -1,4 +1,12 @@
-""" Script to analyze brownian dynamics simulations of active polymer."""
+r"""
+Computing structural properties from simulation data
+----------------------------------------------------
+This module can be used to analyze steady state structures from the simulation data produced
+by the act_pol.bdsim module. Functions are available to calculate/plot the end to end distance,
+radius of gyration, and distance from center of mass. For contact maps,
+see act_pol.analysis.contacts. For dynamical observables, see act_pol.analysis.msd.
+
+"""
 
 import numpy as np
 from .rouse import linear_mid_msd, end2end_distance_gauss, gaussian_Ploop
@@ -88,7 +96,7 @@ def end_to_end_distance_squared_vs_time(X, t_save, b=1, L=100):
 def end_to_end_distance_vs_Rmax(X, t_save, b=1, L=100, N=101):
     """ End to end distance is <R_N(t) - R_0(t)>, i.e. the norm of the position vector
         of last bead minus position vector of first beed.
-        TODO: look at doi and edwards and figure out theory for this
+        TODO: debug?
         """
     #take mean over time after steady state
     end_to_end = np.linalg.norm((X[-1, :, :] - X[-1, 0, :]), axis=-1)
@@ -110,26 +118,65 @@ def end_to_end_distance_vs_Rmax(X, t_save, b=1, L=100, N=101):
     fig.tight_layout()
     plt.show()
 
+def average_end2end_distance_vs_Rmax(simdir, b=1, L=100, N=101, ntraj=96):
+    """ End to end distance is <R_N(t) - R_0(t)>, i.e. the norm of the position vector
+        of last bead minus position vector of first bead. """
+    simdir = Path(simdir)
+    Nhat = L / b
+    Rmax = [n * b for n in range(0, N)]
+    end2end = [n**(1/2) * b for n in range(0, N)]
+    end_to_end_v_Rmax = np.zeros(N,)
+    for j in range(ntraj):
+        X, t_save = process_sim(simdir / f'tape{j}.csv')
+        DT = np.diff(t_save)[0]  # time between save points
+        nrousetimes = int(np.ceil(350. / DT))  # number of frames that make up a rouse time
+        ntimes, _, _ = X.shape
+        nreplicates = ntraj * len(range(nrousetimes, ntimes, nrousetimes))
+        if relative:
+            Xeq, _ = process_sim(Path(relative) / f'tape{j}.csv')
+        for i in range(nrousetimes, ntimes, nrousetimes):
+            end_to_end_squared = np.sum((X[i, :, :] - X[i, 0, :])**2, axis=-1)
+            end_to_end_v_Rmax += np.sqrt(end_to_end_squared)
+    end_to_end_v_Rmax /= nreplicates
+    nu = stats.linregress(np.log(Rmax[1:]), np.log(end_to_end_v_Rmax[1:]))[0]
+    fig, ax = plt.subplots()
+    ax.plot(Rmax, end_to_end_v_Rmax, label=f'$bN^{{{nu:.3f}}}$, n={nreplicates}')
+    ax.plot(Rmax, end2end, label=r'$bN^{1/2}$')
+    ax.set_xlabel(r'$R_{max}$')
+    ax.set_ylabel(r'$\sqrt{\langle R^2 \rangle}$')
+    plt.legend()
+    plt.xscale('log')
+    plt.yscale('log')
+    fig.tight_layout()
+    plt.savefig('plots/end2end_screq.pdf')
+    plt.show()
+
 def average_R2_vs_time(simdir, b=1, D=1, L=100, N=101, ntraj=16):
     simdir = Path(simdir)
     Nhat = L/b
     fig, ax = plt.subplots()
     palette = sns.cubehelix_palette(n_colors=ntraj)
     ord = np.random.permutation(len(palette))
-    average_R2 = np.zeros((201,))
+    X, t_save = process_sim(simdir / f'tape0.csv')
+    average_R2 = np.zeros((len(t_save),))
     for i in range(ntraj):
         X, t_save = process_sim(simdir/f'tape{i}.csv')
         end_to_end_squared = np.sum((X[:, -1, :] - X[:, 0, :])**2, axis=-1)
         average_R2 += end_to_end_squared
-        ax.plot(t_save, end_to_end_squared, color=palette[ord[i]], alpha=0.4)
-    ax.plot(t_save, average_R2/ntraj, 'k-', label=f'simulation average (N={ntraj})')
-    ax.plot(t_save, np.tile(Nhat * b ** 2, len(t_save)), label='theory')
+        #ax.plot(t_save, end_to_end_squared, color=palette[ord[i]], alpha=0.4)
+    average_R2 /= ntraj
+    ax.plot(t_save, np.sqrt(average_R2), 'k-', label=f'simulation average (N={ntraj})')
+    meanR = np.mean(np.sqrt(average_R2[2:]))
+    nu = np.log(meanR)/np.log(Nhat)
+    print(f'Average end to end distance: {meanR}')
+    ax.plot(t_save, np.tile(meanR, len(t_save)), label=f'$bN^{{{nu:.3f}}}$')
+    ax.plot(t_save, np.tile(np.sqrt(Nhat) * b, len(t_save)), label=r'$bN^{1/2}$')
     ax.set_xlabel('Time')
-    ax.set_ylabel(r'$\langle R^2 \rangle$')
+    ax.set_ylabel(r'$\sqrt{\langle R^2 \rangle}$')
     plt.legend()
     fig.tight_layout()
-    plt.savefig(f'plots/rsquared_vs_time_{simdir.name}.pdf')
-    return fig, ax
+    plt.savefig(f'plots/end_to_end_distance_vs_time_{simdir.name}.pdf')
+    plt.show()
 
 def plot_correlation(C, name, title):
     fig, ax = plt.subplots()
@@ -158,329 +205,7 @@ def plot_cov_from_corr(mat, rhos, D, name,
     ax.set_ylabel(r'Bead $j$')
     fig.tight_layout()
     plt.savefig(f'plots/idcov_{name}.pdf')
-
-def two_point_msd(simdir, ntraj, N=101, relative=None, squared=False):
-    """Compute mean squared distance between two beads on a polymer at
-    a particular time point. Plot heatmap"""
-    #TODO: average over structures and average over time
-    simdir = Path(simdir)
-    average_dist = np.zeros((N, N))
-    eq_dist = np.zeros((N, N))
-    metric = 'euclidean'
-    if squared:
-        metric = 'sqeuclidean'
-    #ignore first half of tape (steady state) and then take time slices every 10 save points
-    #to sample equilibrium structures
-    for j in range(ntraj):
-        X, t_save = process_sim(simdir / f'tape{j}.csv')
-        ntimes, _, _ = X.shape
-        nreplicates = ntraj * (ntimes - 1)
-        #nreplicates = ntraj * len(range(int(ntimes // 2), ntimes, 5))
-        if relative:
-            Xeq, _ = process_sim(Path(relative) / f'tape{j}.csv')
-        for i in range(1, ntimes):
-        #for i in range(int(ntimes//2), ntimes, 5):
-            #for temperature modulations
-            dist = pdist(X[i, :, :], metric=metric)
-            Y = squareform(dist)
-            average_dist += Y
-            #for equilibrium case
-            if relative:
-                dist = pdist(Xeq[i, :, :], metric=metric)
-                eq_dist += squareform(dist)
-
-    average_dist = average_dist / nreplicates
-    if squared:
-        Rg_squared = np.sum(average_dist) / (2 * N ** 2)
-    else:
-        Rg_squared = np.sum(average_dist ** 2) / (2 * N ** 2)
-
-    if relative:
-        eq_dist = eq_dist / nreplicates
-        return Rg_squared, average_dist, eq_dist
-
-    return Rg_squared, average_dist
-
-def plot_msd_map(dist, simdir, relative=False, squared=False):
-    """ Plot heatmap where entry (i, j) is the mean distance between beads i and j. This version
-    does not include a bar showing the temperature of the beads or anything."""
-    simdir = Path(simdir)
-    fig, ax = plt.subplots()
-    if relative:
-        res = sns.heatmap(dist, xticklabels=25,
-                    yticklabels=25, cmap=cmr.iceburn, center=0.0, square=True, ax=ax)
-        if squared:
-            ax.set_title(r'MSD relative to uniform temperature')
-        else:
-            ax.set_title(r'$\langle r_{ij} \rangle  - \langle r_{ij} \rangle_{eq}$')
-    else:
-        res = sns.heatmap(dist, xticklabels=25, yticklabels=25,
-                    cmap='magma', square=True, ax=ax)
-        if squared:
-            ax.set_title(r'Mean squared distance $\langle\Vert \vec{r}_i - \vec{r}_j \Vert^2\rangle$')
-        else:
-            ax.set_title(r'Mean distance $\langle\Vert \vec{r}_i - \vec{r}_j \Vert\rangle$')
-    ax.set_xlabel(r'Bead $i$')
-    ax.set_ylabel(r'Bead $j$')
-    # make frame visible
-    for _, spine in res.spines.items():
-        spine.set_visible(True)
-    fig.tight_layout()
-    if relative:
-        plt.savefig(f'plots/two_point_msd_{simdir.name}_relative.pdf')
-    else:
-        plt.savefig(f'plots/two_point_msd_{simdir.name}.pdf')
-
-def heatmap_temps(mat=None, D=None, width=10, **kwargs):
-    """ Test heatmap that contains colorbar, and 2 bars on bottom and left specifying
-    temperatures of the beads. BUGGY. """
-    if mat is None:
-        mat = np.random.randn((101, 101))
-    if D is None:
-        D = np.random.rand(101)
-    D = 0.25 * np.ones((width, 101))
-    D[:, 30:50] = 1.75
-    D[:, 80:] = 1.75
-    fig = plt.figure()
-    grid = ImageGrid(fig, 111,  # similar to subplot(111)
-                     nrows_ncols=(2, 3),
-                     axes_pad=0.1,
-                     )
-    #make bottom left axis disappear
-    grid[3].axis('off')
-    grid[5].axis('off')
-    grid[4].set_xticks([0, 25, 50, 75, 100])
-    grid[0].set_yticks([0, 25, 50, 75, 100])
-    im = grid[1].imshow(mat, cmap='coolwarm', **kwargs)
-    grid[4].imshow(D, cmap='coolwarm', vmin=1.0)
-    grid[0].imshow(D.T, cmap='coolwarm', vmin=1.0)
-    plt.colorbar(im, cax=grid[2])
-    #divider = make_axes_locatable(grid[2])
-    #cax = divider.append_axes("right", size="5%", pad=0.05)
-    #plt.colorbar(im, cax=cax)
-    """
-    ax = plt.subplot(111)
-    divider = make_axes_locatable(ax)
-    ax_bottom = divider.append_axes("bottom", size=f"{width/101}%", pad=0.1, sharex=ax)
-    ax_left = divider.append_axes("left", size=f"{width/101}%", pad=0.1, sharey=ax)
-
-    res = sns.heatmap(mat, xticklabels=25, yticklabels=25,
-                cmap='magma', square=True, ax=ax, **kwargs)
-    ax_bottom.imshow(D, cmap='coolwarm', vmin=1.0)
-    #ax_bottom.set_xticks([0, 25, 50, 75, 100])
-    #ax_left.imshow(D.T, cmap='coolwarm', vmin=1.0)
-    #ax_left.set_yticks([0, 25, 50, 75, 100])
-
-    #temps = sns.heatmap(D, cbar=False, xticklabels=False, yticklabels=False, ax=ax_left,
-    #                    cmap='coolwarm', vmin=1.0)
-    #temps = sns.heatmap(D, cbar=False, xticklabels=False, yticklabels=False, ax=ax_bottom,
-    #                    cmap='coolwarm', vmin=1.0)
-    """
-    # make frame visible
-    #for _, spine in res.spines.items():
-    #    spine.set_visible(True)
-
-    grid[1].set_title(r'Mean distance $\langle\Vert \vec{r}_i - \vec{r}_j \Vert\rangle$')
-    grid[4].set_xlabel(r'Bead $i$')
-    grid[0].set_ylabel(r'Bead $j$')
-    fig.tight_layout()
     plt.show()
-
-def heatmap_divider(mat, temps, simname, relative=False, width=5, **kwargs):
-    """ Tested and this works!!!! """
-    if mat is None:
-        mat = np.random.randn((101, 101))
-
-    D = np.ones((width, 101))
-    for i in range(width):
-        D[i, :] = temps
-    fig = plt.figure()
-    ax = plt.subplot(111)
-    divider = make_axes_locatable(ax)
-    ax_bottom = divider.append_axes("bottom", size=f"{width}%", pad=0.0)
-    ax_left = divider.append_axes("left", size=f"{width}%", pad=0.0)
-    cax = divider.append_axes("right", size=f"{width}%", pad=0.1)
-    ax_bottom.set_xticks([0, 25, 50, 75, 100])
-    ax_bottom.set_yticks([])
-    ax_left.set_yticks([0, 25, 50, 75, 100])
-    ax_left.set_xticks([])
-    ax.set_xticks([])
-    ax.set_yticks([])
-    if relative:
-        im = ax.imshow(mat, norm=colors.CenteredNorm(), cmap=cmap_relative)
-    else:
-        im = ax.imshow(mat, cmap=cmap_distance, **kwargs)
-    ax_bottom.imshow(D, cmap='coolwarm', vmin=0.25, vmax=1.75)
-    ax_left.imshow(D.T, cmap='coolwarm', vmin=0.25, vmax=1.75)
-    fig.colorbar(im, cax=cax)
-    if relative:
-        ax.set_title(r'$\langle r_{ij} \rangle  - \langle r_{ij} \rangle_{eq}$')
-        #ax.set_title(r'Relative change in $\langle r_{ij} \rangle$')
-    else:
-        ax.set_title(r'Mean distance $\langle r_{ij} \rangle$')
-    ax_bottom.set_xlabel(r'Bead $i$')
-    ax_left.set_ylabel(r'Bead $j$')
-    fig.tight_layout()
-    if relative:
-        plt.savefig(f'plots/two_point_msd_{simname}_relative.pdf')
-    else:
-        plt.savefig(f'plots/two_point_msd_{simname}.pdf')
-
-def mdmap_abs_rel(dist, eqdist, temps, simname, relative=False, width=5, **kwargs):
-    """ Tested and this works!!!! """
-    ind = np.diag_indices(dist.shape[0])
-    dist[ind] = 1.0
-    eqdist[ind] = 1.0
-    rel_dist = (dist - eqdist)/eqdist * 100.0
-    half_rel = np.triu(rel_dist, k=0)
-    half_abs = np.tril(dist, k=1)
-    D = np.ones((width, 101))
-    for i in range(width):
-        D[i, :] = temps
-    fig = plt.figure()
-    ax = plt.subplot(111)
-    divider = make_axes_locatable(ax)
-    ax_bottom = divider.append_axes("bottom", size=f"{width}%", pad=0.0)
-    ax_left = divider.append_axes("left", size=f"{width}%", pad=0.0)
-    cax = divider.append_axes("right", size=f"{width}%", pad=0.1)
-    cax2 = divider.append_axes("top", size=f"{width}%", pad=0.1)
-    ax_bottom.set_xticks([0, 25, 50, 75, 100])
-    ax_bottom.set_yticks([])
-    ax_left.set_yticks([0, 25, 50, 75, 100])
-    ax_left.set_xticks([])
-    ax.set_xticks([])
-    ax.set_yticks([])
-    if relative:
-        im = ax.imshow(dist[::-1, :], cmap=cmap_distance, **kwargs)
-        im2 = ax.imshow(rel_dist[::-1, :], norm=colors.CenteredNorm(), cmap=cmap_relative, **kwargs)
-    else:
-        im2 = ax.imshow(rel_dist[::-1, :], norm=colors.CenteredNorm(), cmap=cmap_relative, **kwargs)
-        im = ax.imshow(dist[::-1, :], cmap=cmap_distance, **kwargs)
-    ax_bottom.imshow(D, cmap='coolwarm', vmin=D.min(), vmax=D.max())
-    ax_left.imshow(D.T[::-1, :], cmap='coolwarm', vmin=D.min(), vmax=D.max())
-    cbar = fig.colorbar(im, cax=cax, label=r'MSD $\langle \Delta r^2_{ij} \rangle$')
-    cbar2 = fig.colorbar(im2, cax=cax2, orientation='horizontal', ticks=[-25, 0, 25])
-    cax2.xaxis.set_ticks_position('top')
-    cbar2.set_ticklabels(['-25\%', '', '25\%'])
-    #ax.set_title(r'$\langle r_{ij} \rangle  - \langle r_{ij} \rangle_{eq}$')
-    cax2.set_title('relative change in MSD')
-    ax_bottom.set_xlabel(r'Bead $i$')
-    ax_left.set_ylabel(r'Bead $j$')
-    fig.tight_layout()
-    plt.savefig(f'plots/two_point_msd_{simname}_rel_front.pdf')
-
-def contact_probability(a, simdir, ntraj, N=101, eq_contacts=None):
-    """Compute mean squared distance between two beads on a polymer at
-    a particular time point. Plot heatmap"""
-    #TODO: average over structures and average over time
-    simdir = Path(simdir)
-    average_dist = np.zeros((N, N))
-    #counts(i, j) = number of times monomer i and j loop within contact radius a
-    counts = np.zeros((N, N))
-    metric = 'euclidean'
-    #ignore first half of tape (steady state) and then take time slices every 10 save points
-    #to sample equilibrium structures
-    for j in range(ntraj):
-        X, t_save = process_sim(simdir / f'tape{j}.csv')
-        ntimes, _, _ = X.shape
-        nreplicates = ntraj * len(range(int(ntimes // 2), ntimes, 5))
-        if eq_contacts:
-            Xeq, _ = process_sim(Path('csvs/bdeq1') / f'tape{j}.csv')
-        for i in range(int(ntimes//2), ntimes, 5):
-            #for temperature modulations
-            dist = pdist(X[i, :, :], metric=metric)
-            Y = squareform(dist)
-            counts += (Y < a)
-            average_dist += Y
-    contacts = counts / nreplicates
-    return counts, contacts
-
-def plot_contact_map(contacts, eq_contacts = None, robust=True, **kwargs):
-    #Plot contact map (each entry is probability of looping within radius a)
-    fig, ax = plt.subplots()
-    if eq_contacts is not None:
-        res = sns.heatmap(contacts - eq_contacts, center=0.0, square=True,
-                    cmap="vlag", xticklabels=25, yticklabels=25, robust=True, ax=ax)
-        ax.set_title(r'Contact map relative to equilibrium')
-    else:
-        contacts[contacts == 0] = 1e-5
-        lognorm = LogNorm(vmin=contacts.min(), vmax=contacts.max())
-        res = sns.heatmap(contacts, norm=lognorm,
-                    cmap="Reds", square=True, xticklabels=25, yticklabels=25, robust=robust, ax=ax,
-                          **kwargs)
-        ax.set_title(r'Contact Map $P(\Vert \vec{r}_i - \vec{r}_j \Vert < a)$')
-    ax.set_xlabel(r'Bead $i$')
-    ax.set_ylabel(r'Bead $j$')
-    # make frame visible
-    for _, spine in res.spines.items():
-        spine.set_visible(True)
-    fig.tight_layout()
-    plt.savefig(f'plots/contact_map_{simdir.name}.pdf')
-
-def plot_contact_map_temps(contacts, temps, simname, width=5, a=1, tag=None, **kwargs):
-    if tag is None:
-        tag = ''
-    contacts[contacts == 0] = 1e-5
-    lognorm = LogNorm(vmin=contacts.min(), vmax=contacts.max())
-    D = np.ones((width, 101))
-    for i in range(width):
-        D[i, :] = temps
-    fig = plt.figure()
-    ax = plt.subplot(111)
-    divider = make_axes_locatable(ax)
-    ax_bottom = divider.append_axes("bottom", size=f"{width}%", pad=0.0)
-    ax_left = divider.append_axes("left", size=f"{width}%", pad=0.0)
-    cax = divider.append_axes("right", size=f"{width}%", pad=0.1)
-    ax_bottom.set_xticks([0, 25, 50, 75, 100])
-    ax_bottom.set_yticks([])
-    ax_left.set_yticks([0, 25, 50, 75, 100])
-    ax_left.set_xticks([])
-    ax.set_xticks([])
-    ax.set_yticks([])
-    im = ax.imshow(contacts, norm=lognorm, cmap=cmap_contacts, **kwargs)
-    ax_bottom.imshow(D, cmap='coolwarm', vmin=0.25, vmax=1.75)
-    ax_left.imshow(D.T, cmap='coolwarm', vmin=0.25, vmax=1.75)
-    fig.colorbar(im, cax=cax)
-    ax.set_title(f'Contact Map $P(\\Vert \\vec{{r}}_i - \\vec{{r}}_j \\Vert < {a})$')
-    ax_bottom.set_xlabel(r'Bead $i$')
-    ax_left.set_ylabel(r'Bead $j$')
-    fig.tight_layout()
-    plt.savefig(f'plots/contact_map_{simname}_temps{tag}.pdf')
-
-def compute_ploop(counts, nreplicates):
-    #To compute histogram as a function of s, distance along chain, sum over diagonals
-    sdistances = np.arange(0.0, N)
-    Ploop = np.zeros_like(sdistances)
-    for i in range(N):
-        if i == 0:
-            Ploop[i] += np.trace(counts, offset=0)
-        else:
-            Ploop[i] += np.trace(counts, offset=i)
-            Ploop[i] += np.trace(counts, offset=-i)
-    #P(loop | s) = P(loop, s) / P(s)
-    # number of entries of contact matrix where monomers are a distance s apart
-    p_of_s = (np.arange(1, N + 1))[::-1]
-    p_of_s[1:] *= 2
-    normalization = nreplicates * p_of_s
-    Ploop = Ploop / normalization
-    return Ploop, sdistances, nreplicates
-
-def plot_ploop(sdistances, Ploop, nreplicates, descriptor, a=1, b=1):
-    #sdistances is anyway in units of kuhn lengths
-    analytical_ploop = [gaussian_Ploop(a, n, b) for n in sdistances[1:]]
-    fig, ax = plt.subplots()
-    ax.plot(sdistances, Ploop, label=f'Simulation estimate (n={nreplicates})')
-    ax.plot(sdistances[1:], analytical_ploop, label='Theory')
-    corner = draw_power_law_triangle(-3/2, [1, -0.5], 0.5, 'up', base=10,
-                            hypotenuse_only=False)
-    ax.text(12.0, 0.07, r'$s^{-3/2}$')
-    plt.yscale('log')
-    plt.xscale('log')
-    ax.set_xlabel('Loop size')
-    ax.set_ylabel(f'Looping probability')
-    plt.legend()
-    fig.tight_layout()
-    plt.savefig(f'plots/ploop_{descriptor}.pdf')
 
 def plot_msd_from_center(eqdist, step_dist, conf_step_dist, N=101):
     """ For all three simulation replicates, plot the MSD from the center
@@ -504,8 +229,10 @@ def radius_of_gyration(simdir, ntraj=96):
     Rg = []
     for j in range(ntraj):
         X, t_save = process_sim((Path(simdir) / f'tape{j}.csv'))
+        DT = np.diff(t_save)[0]  # time between save points
+        nrousetimes = int(np.ceil(350. / DT))  # number of frames that make up a rouse time
         ntimes, _, _ = X.shape
-        for i in range(int(ntimes // 2), ntimes, 10):
+        for i in range(nrousetimes, ntimes, nrousetimes):
             com = np.mean(X[i, :, :], axis=0)
             Rg.append(np.sum((X[i, :, :] - com)**2, axis=-1).mean())
     return np.array(Rg).mean()
@@ -570,35 +297,6 @@ def step_radial_distribution(sim='conf_step_7x', ntraj=96, N=101):
     ax.legend()
     fig.tight_layout()
     plt.savefig('plots/radial_distribution_cosine_conf.pdf')
-
-
-def end_to_end_distance(simdir, ntraj=16, b=1, L=100, N=101):
-    """ End to end distance is <R_N(t) - R_0(t)>, i.e. the norm of the position vector
-        of last bead minus position vector of first beed.
-        TODO: look at doi and edwards and figure out theory for this
-        """
-    #take mean over time after steady state
-    sqrt_r2 = np.zeros((N,))
-    for j in range(ntraj):
-        X, t_save = process_sim(Path(simdir) / f'tape{j}.csv')
-        end_to_end = np.linalg.norm((X[-1, :, :] - X[-1, 0, :]), axis=-1)
-        sqrt_r2 += end_to_end
-    #end_to_end = np.mean(end_to_end, axis=0)
-    #print(end_to_end.shape)
-    fig, ax = plt.subplots()
-    Nhat = L/b #number of kuhn lengths
-    L0 = L/(N-1)  # length per bead
-    r = [n*L0 for n in range(N)]
-    ax.plot(r, sqrt_r2/ntraj, label=f'simulation average (N={ntraj})')
-    #analytical_r2 = end2end_distance_gauss(r, b, Nhat, L)
-    #ax.plot(r, analytical_r2, label='theory')
-    ax.set_xlabel(r'$R_{max}$')
-    ax.set_ylabel(r'$\langle R^2 \rangle$')
-    plt.legend()
-    #plt.xscale('log')
-    #plt.yscale('log')
-    fig.tight_layout()
-    plt.show()
 
 def plot_chain(simdir, ntraj=96, mfig=None, **kwargs):
     """ Plot a random chain from the last time point of one of these simulations
@@ -772,18 +470,6 @@ def analyze_step_sims(sims=['step_7x']):
         #heatmap_divider(dist - eqdist, Ds, sim, relative=True)
         counts, contacts = contact_probability(1.0, f'csvs/{sim}', 96)
         plot_contact_map_temps(contacts, Ds, sim)
-
-def vary_contact_radius(sims, radii):
-    """ For each simulation in sims, plot a contact map for different capture radii to understand
-    the effect of `a` on contact map."""
-    for sim in sims:
-        simpath = Path(f'csvs/{sim}')
-        df = pd.read_csv(simpath / 'tape0.csv')
-        # extract temperatures
-        Ds = np.array(df[df['t'] == 0.0].D)
-        for a in radii:
-            counts, contacts = contact_probability(a, f'csvs/{sim}', 96)
-            plot_contact_map_temps(contacts, Ds, sim, a=a, tag=f'_a{a}')
 
 def analyze_sims(sims=['conf1_alt0_altT',
                        'conf1_alt0_sameT', 'conf1_altT']):

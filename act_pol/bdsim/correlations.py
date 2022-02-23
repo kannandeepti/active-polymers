@@ -11,6 +11,7 @@ via :math:`\langle \eta_i \eta_j \rangle = 2 \sqrt{D_i} \sqrt{D_j} C_{ij}`.
 import numpy as np
 from numba import njit
 from scipy import stats
+from ..analysis.files import extract_cov
 
 
 def gaussian_correlation(N, length, s0, s0_prime, max):
@@ -242,3 +243,16 @@ def covariance_from_noise(identity_mat, rhos, stds, niter=1000, **kwargs):
     avg_covariance = covariance / niter
     return avg_covariance
 
+def covariance_from_identities(simdir, **kwargs):
+    """ For a given simulation, extract covariance matrix, compute analytical center of mass
+    diffusion coefficient (comD) and return ratio of comD to center of mass diffusion coefficient
+    of a Rouse polymer."""
+
+    D, idmat, rhos = extract_cov(simdir, **kwargs)
+    N = len(D)
+    rho = rhos[0]
+    corr = np.outer(idmat, idmat)
+    corr *= rho
+    corr[np.diag_indices(N)] = 1.0 #diagonal of correlation matrix is 1
+    cov = np.sqrt(np.outer(D, D)) * corr
+    return cov

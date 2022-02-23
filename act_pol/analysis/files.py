@@ -39,20 +39,24 @@ def process_sim(file):
     X = np.array(X)
     return X, t_save
 
-def extract_cov(simdir, tape=0):
+def extract_cov(simdir, tape=0, time=350.0):
     """ Extract list of D's and identity matrix from files in simulation directory
     `simdir' from tape file."""
     simdir = Path(simdir)
     simname = simdir.name
     df = pd.read_csv(simdir / f'tape{tape}.csv')
     # extract temperatures
-    D = np.array(df[df['t'] == 350.0].D)
+    D = np.array(df[df['t'] == time].D)
     mat = np.zeros((1, 101))
     rhos = np.array([0.5])  # TODO: save rhos to file as well
     if (simdir / 'idmat.csv').is_file():
         df = pd.read_csv(simdir / 'idmat.csv')
         mat = np.array(df)
-        mat = mat[0, 1:].reshape((1, 101))
+        if 'rho' in df.columns:
+            rhos = np.array(df['rho'])
+            mat = mat[0, 1:-1].reshape((1, 101))
+        else:
+            mat = mat[0, 1:].reshape((1, 101))
     return D, mat, rhos
 
 def to_XYZ(X, temps, filepath, filename, frames=None, L=100, b=1):
