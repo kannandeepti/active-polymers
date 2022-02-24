@@ -773,7 +773,7 @@ def conf_identity_core_noise_srk2(N, L, b, D, h, tmax, t_save,
 
 @njit
 def scr_avoidNL_srk2(N, L, b, D, a, h, tmax, t_save=None, t_msd=None,
-                     msd_start_time=None, mat=None, rhos=None, Deq=1):
+                     msd_start_time=1.0, mat=None, rhos=None, Deq=1):
     """ Simulate a self-avoiding Rouse polymer via a soft core (harmonic)
     repulsive potential using a 2nd order stochastic runge kutta integrator.
 
@@ -813,13 +813,13 @@ def scr_avoidNL_srk2(N, L, b, D, a, h, tmax, t_save=None, t_msd=None,
     if t_msd is not None:
         #at each msd save point, msds of N monomers + center of mass
         msds = np.zeros((len(t_msd), N+1))
-        msd_inds = np.rint(t_msd / h)
         msd_i = 0
         if msd_start_time is None:
             msd_start_ind = 0
             msd_start_pos = x0.copy() #N x 3
         else:
             msd_start_ind = int(msd_start_time // h)
+        msd_inds = np.rint((msd_start_time + t_msd) / h)
 
     x = np.zeros(t_save.shape + x0.shape)
     # setup for saving only requested time points
@@ -831,6 +831,7 @@ def scr_avoidNL_srk2(N, L, b, D, a, h, tmax, t_save=None, t_msd=None,
     # standard deviation of noise 2Dh
     sigma = np.sqrt(2 * Dhat * h)
     ntimesteps = int(tmax // h) + 1  # including 0th time step
+    corr = (mat is not None) and (rhos is not None)
 
     # at each step i, we use data (x,t)[i-1] to create (x,t)[i]
     # in order to make it easy to pull into a new function later, we'll call
@@ -839,7 +840,7 @@ def scr_avoidNL_srk2(N, L, b, D, a, h, tmax, t_save=None, t_msd=None,
         if neighlist.checkNL(x0):
             cl, nl = neighlist.updateNL(x0)
         # noise matrix (N x 3)
-        if mat and rhos:
+        if corr:
             noise = generate_correlations_vars(mat, rhos, sigma)
         else:
             noise = (sigma * np.random.randn(*x0.shape).T).T
@@ -847,7 +848,7 @@ def scr_avoidNL_srk2(N, L, b, D, a, h, tmax, t_save=None, t_msd=None,
         Fa = f_spring_scr_NL(x0, k_over_xi, ks_over_xi, a, dsq, cl, nl, box_size)
         x1 = x0 + h * Fa + noise
         # force at position b
-        if mat and rhos:
+        if corr:
             noise = generate_correlations_vars(mat, rhos, sigma)
         else:
             noise = (sigma * np.random.randn(*x0.shape).T).T

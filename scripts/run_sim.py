@@ -1,9 +1,9 @@
 """ Script to run brownian dynamics simulations of active polymer."""
 import numpy as np
-from bd import *
+from act_pol.bdsim.bd import *
 import pandas as pd
 from pathlib import Path
-from correlations import *
+from act_pol.bdsim.correlations import *
 from numba import njit
 from multiprocessing import Pool
 from functools import partial
@@ -167,7 +167,7 @@ def run_identity_correlated(i, N, L, b, D, filedir, mat, rhos, confined,
     df['t_msd'] = t_msd
     df.to_csv(msd_file)
 
-def run_msd(i, N, L, b, D, a, filedir, h=None, tmax=None):
+def run_msd(i, N, L, b, D, a, filedir, h=None, tmax=None, mat=None, rhos=None):
     """ Run one simulation of a length L chain with N beads,
     Kuhn length b, and array of diffusion coefficients D."""
     file = Path(filedir)/f'tape{i}.csv'
@@ -178,14 +178,15 @@ def run_msd(i, N, L, b, D, a, filedir, h=None, tmax=None):
         if file.parent.is_dir() is False:
             # if the parent directory does not exist and mkdir still failed, re-raise an exception
             raise
+    msd_start_time = 1.0
     if h is None:
         h = 0.001
     if tmax is None:
-        tmax = 1.0e4 + h
+        tmax = 1.0e4 + msd_start_time + h
     t_save = 350.0 * np.arange(0, np.floor(tmax / 350.0) + 1)
     t_msd = np.logspace(-2, 4, 86)
     X, msd = scr_avoidNL_srk2(N, L, b, D, a, h, tmax, t_save=t_save,
-                              t_msd=t_msd)
+                              t_msd=t_msd,  mat=mat, rhos=rhos)
     #X, msd = with_srk1(N, L, b, D, h, tmax, t_save=t_save, t_msd=t_msd)
     dfs = []
     for i in range(X.shape[0]):
@@ -200,7 +201,7 @@ def run_msd(i, N, L, b, D, a, filedir, h=None, tmax=None):
     df['t_msd'] = t_msd
     df.to_csv(msd_file)
 
-def run(i, N, L, b, D, filedir, t=None, confined=False, 
+def run(i, N, L, b, D, filedir, h=None, tmax=None, confined=False, 
         Aex=5.0, rx=5.0, ry=5.0, rz=5.0):
     """ Run one simulation of a length L chain with N beads,
     Kuhn length b, and array of diffusion coefficients D."""
@@ -211,15 +212,18 @@ def run(i, N, L, b, D, filedir, t=None, confined=False,
         if file.parent.is_dir() is False:
             # if the parent directory does not exist and mkdir still failed, re-raise an exception
             raise
-    if t is None:
-        t = np.linspace(0, 1e5, int(1e7) + 1)
     print(f'Running simulation {filedir.name}')
+    if h is None:
+        h = 0.001
+    if tmax is None:
+        tmax = 1.0e4 + h
+    t_save = 350.0 * np.arange(0, np.floor(tmax / 350.0) + 1)
     #save 100 conformations
-    t_save = np.linspace(0, 1e5, 200 + 1)
+    #t_save = np.linspace(0, 1e5, 200 + 1)
     if confined:
-        X = jit_confined_srk1(N, L, b, D, Aex, rx, ry, rz, t, t_save)
+        X = jit_confined_srk1(N, L, b, D, h, Aex, rx, ry, rz, t, t_save)
     else:
-        X = with_srk1(N, L, b, D, t, t_save)
+        X = with_srk1(N, L, b, D, h, tmax, t_save)
     dfs = []
     for i in range(X.shape[0]):
         df = pd.DataFrame(X[i, :, :])
@@ -240,7 +244,7 @@ if __name__ == '__main__':
     #D = np.tile(0.25, N)
     #D[10:30] = 1.75
     #D[50:80] = 1.75
-    filedir = Path('csvs/scr_cos3x')
+    filedir = Path('csvs/cos3x_4periods')
     """
     tic = time.perf_counter()
     X, t_save = test_identity_correlated_noise()
@@ -261,7 +265,7 @@ if __name__ == '__main__':
     mat = np.ones((1, N))
     mat[0, 10:30] = -1.0
     mat[0, 50:80] = -1.0
-    rhos = np.array([0.25])
+    rhos = np.array([0.5])
 
     file = Path(filedir)/'idmat.csv'
     try:
@@ -272,10 +276,11 @@ if __name__ == '__main__':
             raise
     #save identity matrix for future reference
     df = pd.DataFrame(mat)
+    df['rho'] = rhos
     df.to_csv(file)
     """
     print(f'Running simulation {filedir.name}')
-    func = partial(run_msd, N=N, L=L, b=b, D=D, a=0.5,
+    func = partial(run, N=N, L=L, b=b, D=D,
                    filedir=filedir)
     tic = time.perf_counter()
     pool_size = 16
