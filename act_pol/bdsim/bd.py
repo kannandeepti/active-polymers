@@ -773,7 +773,8 @@ def conf_identity_core_noise_srk2(N, L, b, D, h, tmax, t_save,
 
 @njit
 def scr_avoidNL_srk2(N, L, b, D, a, h, tmax, t_save=None, t_msd=None,
-                     msd_start_time=1.0, mat=None, rhos=None, Deq=1):
+                     msd_start_time=None, mat=None, rhos=None, Aex=None,
+                     R=None, Deq=1):
     """ Simulate a self-avoiding Rouse polymer via a soft core (harmonic)
     repulsive potential using a 2nd order stochastic runge kutta integrator.
 
@@ -784,6 +785,7 @@ def scr_avoidNL_srk2(N, L, b, D, a, h, tmax, t_save=None, t_msd=None,
     ----------
     a : float
         Radius of monomer
+    R : radius of simulation box for periodic boundary conditions
 
     TODO: use @jit(parallel=True) to parallelize neighborlist construction and
     force computation.
@@ -795,9 +797,12 @@ def scr_avoidNL_srk2(N, L, b, D, a, h, tmax, t_save=None, t_msd=None,
     L0 = L / (N - 1)  # length per bead
     bhat = np.sqrt(L0 * b)  # mean squared bond length of discrete gaussian chain
     Nhat = L / b  # number of Kuhn lengths in chain
-    Rg = Nhat * b ** 2 / 6 #estimated radius of gyration of the chain
-    box_size = 3 * Rg #length of edge of simulation domain
-    Dhat = D * N / Nhat  # diffusion coef of a discrete gaussian chain bead500
+    if R is not None:
+        box_size = 2 * R #lenth of simulation box = diameter of confinement
+    else:
+        Rg = Nhat * b ** 2 / 6  # estimated radius of gyration of the chain
+        box_size = 3 * Rg #length of edge of simulation domain
+    Dhat = D * N / Nhat  # diffusion coef of a discrete gaussian chain bead
     Deq = Deq * N / Nhat
     # set spring constant to be 3D/b^2 where D is the equilibrium diffusion coefficient
     k_over_xi = 3 * Deq / bhat ** 2
@@ -806,7 +811,7 @@ def scr_avoidNL_srk2(N, L, b, D, a, h, tmax, t_save=None, t_msd=None,
     x0 = bhat / np.sqrt(3) * np.random.randn(N, 3)
     for i in range(1, N):
         x0[i] = x0[i - 1] + x0[i]
-    #build neighbor list
+    #build neighbor list: each cell size = 1.5 * diameter of a monomer
     neighlist = NeighborList(d, 0.5*d, box_size)
     cl, nl = neighlist.updateNL(x0)
 
@@ -845,14 +850,22 @@ def scr_avoidNL_srk2(N, L, b, D, a, h, tmax, t_save=None, t_msd=None,
         else:
             noise = (sigma * np.random.randn(*x0.shape).T).T
         # force at position a
-        Fa = f_spring_scr_NL(x0, k_over_xi, ks_over_xi, a, dsq, cl, nl, box_size)
+        if Aex is not None:
+            Fa = f_spring_conf_scrNL(x0, k_over_xi, ks_over_xi, a, dsq, Aex, R, R, R, cl, nl,
+                                     box_size)
+        else:
+            Fa = f_spring_scr_NL(x0, k_over_xi, ks_over_xi, a, dsq, cl, nl, box_size)
         x1 = x0 + h * Fa + noise
         # force at position b
         if corr:
             noise = generate_correlations_vars(mat, rhos, sigma)
         else:
             noise = (sigma * np.random.randn(*x0.shape).T).T
-        Fb = f_spring_scr_NL(x1, k_over_xi, ks_over_xi, a, dsq, cl, nl, box_size)
+        if Aex is not None:
+            Fa = f_spring_conf_scrNL(x1, k_over_xi, ks_over_xi, a, dsq, Aex, R, R, R, cl, nl,
+                                     box_size)
+        else:
+            Fb = f_spring_scr_NL(x1, k_over_xi, ks_over_xi, a, dsq, cl, nl, box_size)
         x0 = x0 + 0.5 * (Fa + Fb) * h + noise
         #msd calculation
         if t_msd is not None:

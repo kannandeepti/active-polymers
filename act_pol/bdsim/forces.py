@@ -162,6 +162,7 @@ def f_spring_avoid_NL(x0, k_over_xi, a, dsq, cl, nl, box_size):
             for n in range(3):
                 f[i, n] += -k_over_xi * (x0[i, n] - x0[i - 1, n])
                 f[i - 1, n] += -k_over_xi * (x0[i - 1, n] - x0[i, n])
+
         #SELF-AVOIDANCE via repulsive LJ potential
         for j in range(cl[i], cl[i+1]):
             jj = nl[j]
@@ -183,7 +184,7 @@ def f_spring_avoid_NL(x0, k_over_xi, a, dsq, cl, nl, box_size):
 
 @njit
 def f_spring_scr_NL(x0, k_over_xi, ks_over_xi, a, dsq, cl, nl, box_size):
-    """ Compute forces due to springs and soft core repulsive potential.
+    """ Compute forces due to springs and soft core repulsive potential
 
     Parameters
     ----------
@@ -204,6 +205,58 @@ def f_spring_scr_NL(x0, k_over_xi, ks_over_xi, a, dsq, cl, nl, box_size):
             for n in range(3):
                 f[i, n] += -k_over_xi * (x0[i, n] - x0[i - 1, n])
                 f[i - 1, n] += -k_over_xi * (x0[i - 1, n] - x0[i, n])
+        #SELF-AVOIDANCE via repulsive soft core (harmonic) potential
+        for j in range(cl[i], cl[i+1]):
+            jj = nl[j]
+            dist = x0[i] - x0[jj]
+            dist -= np.rint(dist / box_size) * box_size
+            rijsq = dist @ dist
+            if rijsq <= dsq:
+                rij = np.sqrt(rijsq) # | ri - rj |
+                unit_rij = dist / rij
+                fij = ks_over_xi * (2*a - rij) #always a positive number
+                f[i] += fij * unit_rij # force on monomer i due to overlap with monomer j
+                f[jj] -= fij * unit_rij # equal and opposite force on monomer j
+    return f
+
+@njit
+def f_spring_conf_scrNL(x0, k_over_xi, ks_over_xi, a, dsq, Aex, rx, ry, rz, cl, nl, box_size):
+    """ Compute forces due to springs and soft core repulsive potential.
+
+    Parameters
+    ----------
+    ks_over_xi : float
+        strength of scr potential divided by friction coefficient
+    a : float
+        radius of monomer
+    dsq : float
+        (2a)^2, precomputed
+    Aex : float
+        Strength of elliptical confinement
+    rx : float
+        semi-major x-axis of ellipsoid
+    ry : float
+        semi-major y-axis of ellipsoid
+    rz : float
+        semi-major z-axis of ellipsoid
+
+    """
+    N, _ = x0.shape
+    f = np.zeros(x0.shape)
+    for i in range(N):
+        #SPRING FORCES
+        if i >= 1:
+            for n in range(3):
+                f[i, n] += -k_over_xi * (x0[i, n] - x0[i - 1, n])
+                f[i - 1, n] += -k_over_xi * (x0[i - 1, n] - x0[i, n])
+        # CONFINEMENT
+        conf = x0[i, 0] ** 2 / rx ** 2 + x0[i, 1] ** 2 / ry ** 2 + x0[i, 2] ** 2 / rz ** 2
+        if conf > 1:
+            conf_u = np.array([
+                -x0[i, 0] / rx ** 2, -x0[i, 1] / ry ** 2, -x0[i, 2] / rz ** 2
+            ])
+            conf_u = conf_u / np.linalg.norm(conf_u)
+            f[i] += Aex * conf_u * np.power(np.sqrt(conf) - 1, 3)
         #SELF-AVOIDANCE via repulsive soft core (harmonic) potential
         for j in range(cl[i], cl[i+1]):
             jj = nl[j]
