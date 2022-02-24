@@ -317,17 +317,19 @@ def with_srk1(N, L, b, D, h, tmax, t_save=None, t_msd=None, msd_start_time=None,
     for i in range(1, N):
         x0[i] = x0[i-1] + x0[i]
 
+    msds = np.zeros((1, N+1))
     if t_msd is not None:
         print('Setting up msd calculation')
         #at each msd save point, msds of N monomers + center of mass
         msds = np.zeros((len(t_msd), N+1))
-        msd_inds = np.rint(t_msd / h)
         msd_i = 0
         if msd_start_time is None:
+            msd_start_time = 0.0
             msd_start_ind = 0
             msd_start_pos = x0.copy() #N x 3
         else:
             msd_start_ind = int(msd_start_time // h)
+        msd_inds = np.rint((msd_start_time + t_msd) / h)
 
     if t_save is None:
         t_save = np.linspace(0.0, tmax, 101)
@@ -384,9 +386,7 @@ def with_srk1(N, L, b, D, h, tmax, t_save=None, t_msd=None, msd_start_time=None,
         if i == save_inds[save_i]:
             x[save_i] = x0
             save_i += 1
-    if t_msd is not None:
-        return x, msds
-    return x
+    return x, msds
 
 @njit
 def jit_confined_srk1(N, L, b, D, Aex, rx, ry, rz, t, t_save=None, Deq=1):
@@ -773,7 +773,8 @@ def conf_identity_core_noise_srk2(N, L, b, D, h, tmax, t_save,
 
 @njit
 def scr_avoidNL_srk2(N, L, b, D, a, h, tmax, t_save=None, t_msd=None,
-                     msd_start_time=None, mat=None, rhos=None, Aex=None,
+                     msd_start_time=None,
+                     mat=None, rhos=None, Aex=0.0,
                      R=None, Deq=1):
     """ Simulate a self-avoiding Rouse polymer via a soft core (harmonic)
     repulsive potential using a 2nd order stochastic runge kutta integrator.
@@ -815,11 +816,13 @@ def scr_avoidNL_srk2(N, L, b, D, a, h, tmax, t_save=None, t_msd=None,
     neighlist = NeighborList(d, 0.5*d, box_size)
     cl, nl = neighlist.updateNL(x0)
 
+    msds = np.zeros((1, N+1))
     if t_msd is not None:
         #at each msd save point, msds of N monomers + center of mass
         msds = np.zeros((len(t_msd), N+1))
         msd_i = 0
         if msd_start_time is None:
+            msd_start_time = 0.0
             msd_start_ind = 0
             msd_start_pos = x0.copy() #N x 3
         else:
@@ -835,8 +838,8 @@ def scr_avoidNL_srk2(N, L, b, D, a, h, tmax, t_save=None, t_msd=None,
         save_i += 1
     # standard deviation of noise 2Dh
     sigma = np.sqrt(2 * Dhat * h)
-    ntimesteps = int(tmax // h) + 1  # including 0th time step
     corr = (mat is not None) and (rhos is not None)
+    ntimesteps = int(tmax // h) + 1  # including 0th time step
 
     # at each step i, we use data (x,t)[i-1] to create (x,t)[i]
     # in order to make it easy to pull into a new function later, we'll call
@@ -850,7 +853,7 @@ def scr_avoidNL_srk2(N, L, b, D, a, h, tmax, t_save=None, t_msd=None,
         else:
             noise = (sigma * np.random.randn(*x0.shape).T).T
         # force at position a
-        if Aex is not None:
+        if Aex > 0.0:
             Fa = f_spring_conf_scrNL(x0, k_over_xi, ks_over_xi, a, dsq, Aex, R, R, R, cl, nl,
                                      box_size)
         else:
@@ -861,7 +864,7 @@ def scr_avoidNL_srk2(N, L, b, D, a, h, tmax, t_save=None, t_msd=None,
             noise = generate_correlations_vars(mat, rhos, sigma)
         else:
             noise = (sigma * np.random.randn(*x0.shape).T).T
-        if Aex is not None:
+        if Aex > 0.0:
             Fa = f_spring_conf_scrNL(x1, k_over_xi, ks_over_xi, a, dsq, Aex, R, R, R, cl, nl,
                                      box_size)
         else:
@@ -886,6 +889,112 @@ def scr_avoidNL_srk2(N, L, b, D, a, h, tmax, t_save=None, t_msd=None,
             x[save_i] = x0
             save_i += 1
     return x, msds
+
+@njit
+def scr_avoidNL_conf(N, L, b, D, a, h, tmax, t_save=None, t_msd=None,
+                     msd_start_time=None, scr_strength=100.0, Aex=0.0, R=None, Deq=1):
+    """ Simulate a self-avoiding Rouse polymer via a soft core (harmonic)
+    repulsive potential using a 2nd order stochastic runge kutta integrator.
+
+    With h=0.001, this works! Roughly 10 pairs of monomers
+    may be overlapping at any given time but overlaps decay in a matter of a few time steps.
+
+    Parameters
+    ----------
+    a : float
+        Radius of monomer
+    R : radius of simulation box for periodic boundary conditions
+
+    TODO: use @jit(parallel=True) to parallelize neighborlist construction and
+    force computation.
+    """
+    d = 2.0 * a #minimum of interaction potential (diameter)
+    dsq = d ** 2
+    rtol = 1e-5
+    # derived parameters
+    L0 = L / (N - 1)  # length per bead
+    bhat = np.sqrt(L0 * b)  # mean squared bond length of discrete gaussian chain
+    Nhat = L / b  # number of Kuhn lengths in chain
+    if R is not None:
+        box_size = 2 * R #lenth of simulation box = diameter of confinement
+    else:
+        Rg = Nhat * b ** 2 / 6  # estimated radius of gyration of the chain
+        box_size = 3 * Rg #length of edge of simulation domain
+    Dhat = D * N / Nhat  # diffusion coef of a discrete gaussian chain bead
+    Deq = Deq * N / Nhat
+    # set spring constant to be 3D/b^2 where D is the equilibrium diffusion coefficient
+    k_over_xi = 3 * Deq / bhat ** 2
+    ks_over_xi = scr_strength * Deq / a ** 2 #copying parameter chosen by Weber & Fry
+    #initial position
+    x0 = bhat / np.sqrt(3) * np.random.randn(N, 3)
+    for i in range(1, N):
+        x0[i] = x0[i - 1] + x0[i]
+    #build neighbor list: each cell size = 1.5 * diameter of a monomer
+    neighlist = NeighborList(d, 0.5*d, box_size)
+    cl, nl = neighlist.updateNL(x0)
+    nl_updates = [0]
+
+    msds = np.zeros((1, N + 1))
+    if t_msd is not None:
+        #at each msd save point, msds of N monomers + center of mass
+        msds = np.zeros((len(t_msd), N+1))
+        msd_i = 0
+        if msd_start_time is None:
+            msd_start_time = 0.0
+            msd_start_ind = 0
+            msd_start_pos = x0.copy() #N x 3
+        else:
+            msd_start_ind = int(msd_start_time // h)
+        msd_inds = np.rint((msd_start_time + t_msd) / h)
+
+    x = np.zeros(t_save.shape + x0.shape)
+    # setup for saving only requested time points
+    save_i = 0
+    save_inds = np.rint(t_save / h)
+    if 0 == t_save[save_i]:
+        x[0] = x0
+        save_i += 1
+    # standard deviation of noise 2Dh
+    sigma = np.sqrt(2 * Dhat * h)
+    ntimesteps = int(tmax // h) + 1  # including 0th time step
+
+    # at each step i, we use data (x,t)[i-1] to create (x,t)[i]
+    # in order to make it easy to pull into a new function later, we'll call
+    # t[i-1] "t0", old x (x[i-1]) "x0", and t[i]-t[i-1] "h".
+    for i in range(1, ntimesteps):
+        if neighlist.checkNL(x0):
+            cl, nl = neighlist.updateNL(x0)
+            nl_updates.append(i)
+        # noise matrix (N x 3)
+        noise = (sigma * np.random.randn(*x0.shape).T).T
+        # force at position a
+        Fa = f_spring_conf_scrNL(x0, k_over_xi, ks_over_xi, a, dsq, Aex, R, R, R, cl, nl,
+                                     box_size)
+        x1 = x0 + h * Fa + noise
+        # force at position b
+        noise = (sigma * np.random.randn(*x0.shape).T).T
+        Fb = f_spring_conf_scrNL(x1, k_over_xi, ks_over_xi, a, dsq, Aex, R, R, R, cl, nl,
+                                     box_size)
+        x0 = x0 + 0.5 * (Fa + Fb) * h + noise
+        #msd calculation
+        if t_msd is not None:
+            if i == msd_start_ind:
+                msd_start_pos = x0.copy()
+            if i == msd_inds[msd_i]:
+                #calculate msds, increment msd save index
+                mean = np.zeros(x0[0].shape)
+                for j in range(N):
+                    diff = x0[j] - msd_start_pos[j]
+                    mean += diff
+                    msds[msd_i, j] = diff @ diff
+                #center of mass msd
+                diff = mean / N
+                msds[msd_i, -1] = diff @ diff
+                msd_i += 1
+        if i == save_inds[save_i]:
+            x[save_i] = x0
+            save_i += 1
+    return x, msds, nl_updates
 
 @njit
 def jit_avoidNL_srk2(N, L, b, D, a, h, tmax, t_save=None, Deq=1):

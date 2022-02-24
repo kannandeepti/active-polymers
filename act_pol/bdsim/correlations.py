@@ -201,7 +201,10 @@ def generate_correlations_vars(identity_mat, rhos, stds, d=3):
     corr : (N, N) array-like
         correlation matrix
     """
-
+    N = len(stds)
+    if identity_mat is None:
+        noise = (sigma * np.random.randn(N, d).T).T
+        return noise
     k, N = identity_mat.shape
     rhos = np.sqrt(rhos) #correlation between 1 and x
     stds = stds.reshape((N, 1)) / np.sqrt(k)
