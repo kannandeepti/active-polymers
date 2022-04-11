@@ -25,6 +25,7 @@ params = {'axes.edgecolor': 'black',
                   'figure.figsize': [5.67, 4.76],
                   'font.family': 'serif',
                   'font.serif' : ["Computer Modern Roman"],
+                  'font.size' : 18,
                   'mathtext.fontset': 'cm',
                   'xtick.bottom':True,
                   'xtick.top': False,
@@ -234,34 +235,58 @@ def msd_from_files(simdir, ntraj=96, b=1.0, corr=False):
     com_msd_ave /= ntraj
     fig, ax = plt.subplots()
     t_msd = np.array(df['t_msd'])
-    slope, intercept, r, p, se = sp.stats.linregress(t_msd, com_msd_ave)
-    print(f'Slope of center of mass MSD: {slope}')
-    print(f'Ratio of equilibrium com MSD to noneq com MSD: {(6 * np.mean(D) / N) / slope}')
+
     #color three regimes
     rouse_time = (N ** 2) * (b ** 2) / (3 * np.pi ** 2 * np.mean(D))
     rouse_time = 10 ** 3
     #transition from initial diffusive to subdiffusive regime
     t1 = b ** 2 / (3 * np.mean(D) * np.pi)
-    t1 = 10.0
+    t1 = 0.1
+    #t1 = 10.0
     analytical_msd = linear_mid_msd(t_msd, 1.0, N, np.mean(D), num_modes=int(N / 2))
     ax.plot(t_msd, analytical_msd, 'k-', label=r'Rouse, $T_{\rm eq}$')
     comD = analytical_com_diffusion(simdir)
-    ax.plot(t_msd, 6 * comD * t_msd, 'k--', label=r'Theory ($6D_{COM} t$)')
+    #ax.plot(t_msd, 6 * comD * t_msd, 'k--', label=r'Theory ($6D_{COM} t$)')
+    ax.set_xlim(t_msd[0], t_msd[-1])
+    ax.set_ylim(bottom=10 ** (-3), top=10 ** (4.5))
+    xmin, xmax = ax.get_xlim()
+    ymin, ymax = ax.get_ylim()
+    ax.fill_between(t_msd, ymin, ymax,
+                    where=((t_msd >= xmin) & (t_msd <= t1)),
+                    color='#deebf7', alpha=0.5)
+    ax.fill_between(t_msd, ymin, ymax,
+                    where=((t_msd >= t1) & (t_msd <= rouse_time)),
+                    color='#fee6ce', alpha=0.5)
+    ax.fill_between(t_msd, ymin, ymax,
+                    where=((t_msd >= rouse_time) & (t_msd <= xmax)),
+                    color='#e5f5e0', alpha=0.5)
     if corr:
-        ax.plot(t_msd, cold_msd_ave, 'b--', label='-1')
-        ax.plot(t_msd, hot_msd_ave, 'r--', label='0')
+        ax.plot(t_msd, cold_msd_ave, 'b-', label='-1')
+        ax.plot(t_msd, hot_msd_ave, 'r-', label='0')
     else:
         if D.min() == D.max():
             mon_msd_ave = (cold_msd_ave + hot_msd_ave)/2
             ax.plot(t_msd, mon_msd_ave, 'b--', label=r'simulation, $T_{\rm eq}$')
         else:
-            ax.plot(t_msd, cold_msd_ave, 'b--', label = 'cold')
-            ax.plot(t_msd, hot_msd_ave, 'r--', label='hot')
-    ax.plot(t_msd, com_msd_ave, 'g.-', label=f'com, $D={(slope / (6.0 * np.mean(D) / N)):.2f}D_G$')
-    ax.set_xlim(t_msd[0], t_msd[-1])
-    ax.set_ylim(bottom = 10 ** (-4), top=10 ** 4)
-    xmin, xmax = ax.get_xlim()
-    ymin, ymax = ax.get_ylim()
+            ax.plot(t_msd[:-1], cold_msd_ave[:-1], 'b-', lw=3,
+                    label=r'cold, $T = 0.25T_{\rm eq}$')
+            ax.plot(t_msd[:-1], hot_msd_ave[:-1], 'r-', lw=3,
+                    label=r'hot, $T = 1.75T_{\rm eq}$')
+    slope, intercept, r, p, se = sp.stats.linregress(t_msd[:-1], com_msd_ave[:-1])
+    print(f'Slope of center of mass MSD: {slope}')
+    print(f'Ratio of equilibrium com MSD to noneq com MSD: {(6 * np.mean(D) / N) / slope}')
+    #ax.plot(t_msd[:-1], com_msd_ave[:-1], 'g.-', label=f'com, $D'
+    #                                            f'={(slope / (6.0 * np.mean(D) / N)):.2f}D_G$')
+
+    corner = draw_power_law_triangle(1.0, [-2, -0.5], 0.75, 'up', hypotenuse_only=True,
+    color = 'grey')
+    ax.text(10 ** (-1.75), 10 ** (0.3), r'$\tau^{1}$')
+    corner = draw_power_law_triangle(0.5, [0, 1], 2, 'up', hypotenuse_only=True, color='grey')
+    ax.text(5, 60, r'$\tau^{1/2}$')
+    corner = draw_power_law_triangle(1.0, [3.5, 3], 2, 'up', hypotenuse_only=True, color='grey')
+    ax.text(10 ** (4), 7000, r'$\tau^{1}$')
+
+    """
     ax.fill_between(t_msd, ymin, ymax,
                        where=((t_msd >= xmin) & (t_msd <= t1)),
                        color=[0.96, 0.95, 0.95])
@@ -271,6 +296,7 @@ def msd_from_files(simdir, ntraj=96, b=1.0, corr=False):
     ax.fill_between(t_msd, ymin, ymax,
                        where=((t_msd >= rouse_time) & (t_msd <= xmax)),
                        color=[0.9, 0.9, 0.91])
+    """
     ax.set_xlabel('Time')
     ax.set_ylabel('MSD')
     plt.yscale('log')
@@ -278,6 +304,7 @@ def msd_from_files(simdir, ntraj=96, b=1.0, corr=False):
     plt.legend()
     fig.tight_layout()
     plt.savefig(f'plots/monomer_msd_{simname}.pdf')
+    plt.show()
     return cold_msd_ave, hot_msd_ave, com_msd_ave
 
 def ensemble_ave_rouse_msd(simdir, b=1, D=1, L=100, N=101, ntraj=96):
@@ -323,10 +350,35 @@ def plot_analytical_rouse_msd(N, b, D):
     times = np.logspace(-3, 5)
     fig, ax = plt.subplots()
     analytical_msd = linear_mid_msd(times, b, Nhat, D, num_modes=int(N / 2))
-    ax.plot(times, analytical_msd, 'k-', label=r'theory, $T_{\rm eq} = 1$')
-    ax.plot(times, 6 * (D / N) * times, 'r--', label=r'$6Dt/N$')
-    ax.plot(times, (12 / np.pi * D * times) ** (1 / 2) * b, 'b--', label=r'$(12Db^2 t/\pi)^{1/2}$')
-    ax.plot(times, 6 * D * times, 'g--', label=r'$6Dt$')
+    ax.plot(times, analytical_msd, 'k-', lw=4, label=r'Rouse, $T_{\rm eq} = 1$')
+    #ax.plot(times, 6 * (D / N) * times, 'r--', label=r'$6Dt/N$')
+    #ax.plot(times, (12 / np.pi * D * times) ** (1 / 2) * b, 'b--', label=r'$(12Db^2 t/\pi)^{1/2}$')
+    #ax.plot(times, 6 * D * times, 'g--', label=r'$6Dt$')
+    corner = draw_power_law_triangle(1.0, [-3, -1.5], 1.5, 'up', hypotenuse_only=True,
+                                     color='#3182bd')
+    ax.text(10**(-2.5), 10**(-0.5), r'$\tau^{1}$')
+    corner = draw_power_law_triangle(0.5, [0, 1], 2, 'up', hypotenuse_only=True, color='#e6550d')
+    ax.text(5, 60, r'$\tau^{1/2}$')
+    corner = draw_power_law_triangle(1.0, [3.5, 3], 2, 'up', hypotenuse_only=True, color='#31a354')
+    ax.text(10 ** (4), 7000, r'$\tau^{1}$')
+    rouse_time = (N ** 2) * (b ** 2) / (3 * np.pi ** 2 * D)
+    rouse_time = 10**3
+    # transition from initial diffusive to subdiffusive regime
+    t1 = b ** 2 / (3 * D * np.pi)
+    ax.set_xlim(times[0], times[-1])
+    ax.set_ylim(bottom=10 ** (-3.5), top=10 ** (4.5))
+    xmin, xmax = ax.get_xlim()
+    ymin, ymax = ax.get_ylim()
+    ax.fill_between(times, ymin, ymax,
+                    where=((times >= xmin) & (times <= t1)),
+                    color='#deebf7')
+    ax.fill_between(times, ymin, ymax,
+                    where=((times >= t1) & (times <= rouse_time)),
+                    color='#fee6ce')
+    ax.fill_between(times, ymin, ymax,
+                    where=((times >= rouse_time) & (times <= xmax)),
+                    color='#e5f5e0')
+
     ax.set_xlabel('Time')
     ax.set_ylabel('Mean monomer MSD')
     plt.yscale('log')
@@ -334,6 +386,7 @@ def plot_analytical_rouse_msd(N, b, D):
     plt.legend()
     fig.tight_layout()
     plt.savefig('plots/rouse_msd_3regimes.pdf')
+    plt.show()
 
 def plot_monomer_msd(simdir, hot_msd, cold_msd, D=1, N=101, b=1):
     fig, ax = plt.subplots()

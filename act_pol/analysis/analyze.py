@@ -350,6 +350,10 @@ def draw_power_law_triangle(alpha, x0, width, orientation, base=10,
     corner : (2,) np.array
         coordinates of the right-angled corner of the triangle
     """
+    if 'color' in kwargs:
+        color = kwargs['color']
+    else:
+        color = 'k'
     x0, y0 = [base**x for x in x0]
     x1 = x0*base**width
     y1 = y0*(x1/x0)**alpha
@@ -357,10 +361,10 @@ def draw_power_law_triangle(alpha, x0, width, orientation, base=10,
     if (alpha >= 0 and orientation == 'up') \
     or (alpha < 0 and orientation == 'down'):
         if hypotenuse_only:
-            plt.plot([x0, x1], [y0, y1], 'k')
+            plt.plot([x0, x1], [y0, y1], color=color, **kwargs)
         else:
-            plt.plot([x0, x1], [y1, y1], 'k')
-            plt.plot([x0, x0], [y0, y1], 'k')
+            plt.plot([x0, x1], [y1, y1], color=color, **kwargs)
+            plt.plot([x0, x0], [y0, y1], color=color, **kwargs)
         # plt.plot lines have nice rounded caps
         # plt.hlines(y1, x0, x1, **kwargs)
         # plt.vlines(x0, y0, y1, **kwargs)
@@ -368,10 +372,10 @@ def draw_power_law_triangle(alpha, x0, width, orientation, base=10,
     elif (alpha >= 0 and orientation == 'down') \
     or (alpha < 0 and orientation == 'up'):
         if hypotenuse_only:
-            plt.plot([x0, x1], [y0, y1], 'k')
+            plt.plot([x0, x1], [y0, y1], color=color, **kwargs)
         else:
-            plt.plot([x0, x1], [y0, y0], 'k')
-            plt.plot([x1, x1], [y0, y1], 'k')
+            plt.plot([x0, x1], [y0, y0], color=color, **kwargs)
+            plt.plot([x1, x1], [y0, y1], color=color, **kwargs)
         # plt.hlines(y0, x0, x1, **kwargs)
         # plt.vlines(x1, y0, y1, **kwargs)
         corner = [x1, y0]

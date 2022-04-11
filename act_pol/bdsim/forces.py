@@ -246,9 +246,16 @@ def f_spring_conf_scrNL(x0, k_over_xi, ks_over_xi, a, dsq, Aex, rx, ry, rz, cl, 
     for i in range(N):
         #SPRING FORCES
         if i >= 1:
-            for n in range(3):
-                f[i, n] += -k_over_xi * (x0[i, n] - x0[i - 1, n])
-                f[i - 1, n] += -k_over_xi * (x0[i - 1, n] - x0[i, n])
+            disp = x0[i] - x0[i - 1]
+            disp -= np.rint(disp / box_size) * box_size
+            rij = np.sqrt(disp @ disp)
+            fij = -k_over_xi * (rij - 2*a)
+            unit_rij = disp / rij
+            f[i] += fij * unit_rij
+            f[i-1] -= fij * unit_rij
+            #for n in range(3):
+            #    f[i, n] += -k_over_xi * (x0[i, n] - x0[i - 1, n])
+            #    f[i - 1, n] += -k_over_xi * (x0[i - 1, n] - x0[i, n])
         # CONFINEMENT
         conf = x0[i, 0] ** 2 / rx ** 2 + x0[i, 1] ** 2 / ry ** 2 + x0[i, 2] ** 2 / rz ** 2
         if conf > 1:

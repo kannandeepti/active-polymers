@@ -66,6 +66,7 @@ class NeighborList:
         """ Returns true if maximum displacement of a bead exceeds the size of the skin."""
         disp = X - self.xl
         sqdisp = np.sum(disp * disp, axis=-1)
+        print(np.mean(np.sqrt(sqdisp)))
         return (np.max(sqdisp) > self.skinsq)
 
     def updateNL(self, X):

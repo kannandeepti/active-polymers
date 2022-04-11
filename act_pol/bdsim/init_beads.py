@@ -27,6 +27,10 @@ def init_conf(N, bhat, rx, ry, rz):
             x0[i] = x0[i - 1] + bhat / np.sqrt(3) * np.random.randn(3)
     return x0
 
+def grow_cubic(N, box_size):
+    """ Initialize polymer on a cubic lattice of size box_size."""
+    pass
+
 @njit
 def init_conf_avoid(N, bhat, rx, ry, rz, dsq):
     """ Initialize beads to be in confinement and to not overlap.

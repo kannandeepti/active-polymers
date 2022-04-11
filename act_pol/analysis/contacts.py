@@ -308,6 +308,9 @@ def plot_contact_map_temps(contacts, temps, simname, width=5, a=1, tag=None, **k
     ax_left.set_yticks([0, 25, 50, 75, 100])
     ax_left.set_xticks([])
     ax.set_xticks([])
+
+
+
     ax.set_yticks([])
     im = ax.imshow(contacts, norm=lognorm, cmap=cmap_contacts, **kwargs)
     ax_bottom.imshow(D, cmap='coolwarm', vmin=0.25, vmax=1.75)

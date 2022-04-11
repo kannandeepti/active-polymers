@@ -5,6 +5,7 @@ import numpy as np
 from pathlib import Path
 import subprocess
 import pandas as pd
+import matplotlib as mpl
 
 def pull_down_data(simdirs, remote='dkannan@eofe8.mit.edu:~/git-remotes/active-polymers/csvs',
                    local='csvs'):

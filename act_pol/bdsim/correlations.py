@@ -201,10 +201,6 @@ def generate_correlations_vars(identity_mat, rhos, stds, d=3):
     corr : (N, N) array-like
         correlation matrix
     """
-    N = len(stds)
-    if identity_mat is None:
-        noise = (sigma * np.random.randn(N, d).T).T
-        return noise
     k, N = identity_mat.shape
     rhos = np.sqrt(rhos) #correlation between 1 and x
     stds = stds.reshape((N, 1)) / np.sqrt(k)
@@ -228,6 +224,38 @@ def generate_correlations_vars(identity_mat, rhos, stds, d=3):
         #draw uncorrelated variables for type 0
         noise[identity_mat[i, :] == 0, :] += stds[identity_mat[i, :] == 0] * w
     return noise
+
+@njit
+def generate_correlated_Ds(rhos, stds, means):
+    """ Generate correlated diffusion coefficients via the exact same process as before.
+
+    Parameters
+    ----------
+    rhos: (k, N) array-like
+        kth row contains rho, 0s, or -rho to assign monomers of type 1, type 0, or type -1 for the
+        kth feature and the associated correlation coefficient
+    stds : (N,) array-like
+        Standard deviations of the N diffusion coefficients
+    means : (N,) array-like
+        Means of the N diffusion coefficients
+
+    Returns
+    -------
+    D: (N,) array-like
+        array of diffusion coefficients for the N monomers
+
+    """
+    k, N = rhos.shape
+    rhos = np.sign(rhos) * np.sqrt(np.abs(rhos)) #correlation between 1 and x
+    stds = stds.reshape((N,)) / np.sqrt(k)
+    means = means.reshape((N,))
+    D = np.zeros(N)
+    for i in range(k):
+        ghost = np.random.normal() * np.ones(N)
+        Zs = np.random.randn(N)
+        D += stds * (rhos[i, :] * ghost + np.sqrt(1 - rhos[i, :]**2)*Zs)
+    D += means
+    return D
 
 def covariance_from_noise(identity_mat, rhos, stds, niter=1000, **kwargs):
     """ Compute the covariance matrix expected from the noise generation process
