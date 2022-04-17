@@ -772,8 +772,8 @@ def correlated_diffusion_srk2(N, L, b, rhos, meanD, stdD, h, tmax, t_save,
     for i in range(1, ntimesteps):
         #correlated noise matrix (N x 3)
         D = generate_correlated_Ds(rhos, stdD, meanD)
-        if D < 0:
-            D += D + 0.1
+        if np.any(D) < 0:
+            D[D < 0] += D[D < 0] + 0.1
         noise = (np.sqrt(2 * D * h) * np.random.randn(*x0.shape).T).T
         # force at position a
         Fa = f_elas_linear_rouse(x0, k_over_xi)
