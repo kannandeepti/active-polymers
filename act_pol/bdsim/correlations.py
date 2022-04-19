@@ -257,6 +257,35 @@ def generate_correlated_Ds(rhos, stds, means):
     D += means
     return D
 
+@njit
+def generate_correlated_amplitudes(rhos, d=3):
+    """ Generate correlated diffusion coefficients via the exact same process as before.
+
+    Parameters
+    ----------
+    rhos: (k, N) array-like
+        kth row contains rho, 0s, or -rho to assign monomers of type 1, type 0, or type -1 for the
+        kth feature and the associated correlation coefficient
+    stds : (N,) array-like
+        Standard deviations of the N diffusion coefficients
+
+    Returns
+    -------
+    etas: (N,) array-like
+        amplitudes of random noise vector at each monomer
+
+    """
+    k, N = rhos.shape
+    rhos = np.sign(rhos) * np.sqrt(np.abs(rhos)) #correlation between 1 and x
+    noise = np.zeros((N, d))
+    etas = np.zeros(N)
+    for i in range(k):
+        ghost = np.random.randn(1, d) * np.ones((N, d))
+        Zs = np.random.randn(N, d)
+        noise += (rhos[i, :] * ghost.T).T + (np.sqrt(1 - rhos[i, :]**2)*Zs.T).T
+    etas = np.sqrt(np.sum(noise**2, axis=1))
+    return etas
+
 def covariance_from_noise(identity_mat, rhos, stds, niter=1000, **kwargs):
     """ Compute the covariance matrix expected from the noise generation process
     in `generate_correlation_vars`. Draw `niter` samples of the noise and calculate

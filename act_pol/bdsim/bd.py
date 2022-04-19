@@ -115,7 +115,7 @@ by the warning above. Our ``Nhat`` is :mod:`wlcsim.analytical.rouse`'s ``N``).
 """
 from numba import njit
 import numpy as np
-from .correlations import generate_correlations_vars, generate_correlated_Ds
+from .correlations import *
 from .forces import *
 from .init_beads import *
 from .neighbors import NeighborList
@@ -715,6 +715,96 @@ def identity_core_noise_srk2(N, L, b, D, h, tmax, t_save, mat, rhos,
             x[save_i] = x0
             save_i += 1
     return x, msds
+
+@njit
+def correlated_amplitudes_srk2(N, L, b, rhos, D, h, tmax, t_save,
+                             t_msd=None, msd_start_time=None, Deq=1):
+    """ BD simulation with correlated noise using SRK 2 integrator. Instead of
+     inputting a correlation matrix directly, this function instead takes a matrix of monomer
+     identities `mat` and correlation coefficients `rhos` to generate correlated noise directly.
+     See correlations.generate_correlated_noise_vars() for details.
+
+    Parameters
+    ----------
+    rhos: (k, N) array-like
+        kth row contains rho, 0s, or -rho to assign monomers of type 1, type 0, or type -1 for the
+        kth feature along with the associated correlation coefficient
+    D : (N,) array-like
+        Diffusion coefficients of N monomers
+
+    """
+    rtol = 1e-5
+    # derived parameters
+    L0 = L / (N - 1)  # length per bead
+    bhat = np.sqrt(L0 * b)  # mean squared bond length of discrete gaussian chain
+    Nhat = L / b  # number of Kuhn lengths in chain
+    Deq = Deq * N / Nhat
+    # set spring constant to be 3D/b^2 where D is the diffusion coefficient of the coldest bead
+    k_over_xi = 3 * Deq / bhat ** 2
+    #initial position
+    # initial position, sqrt(3) since generating per-coordinate
+    x0 = bhat / np.sqrt(3) * np.random.randn(N, 3)
+    # for jit, we unroll ``x0 = np.cumsum(x0, axis=0)``
+    for i in range(1, N):
+        x0[i] = x0[i - 1] + x0[i]
+    x = np.zeros(t_save.shape + x0.shape)
+
+    if t_msd is not None:
+        #at each msd save point, msds of N monomers + center of mass
+        msds = np.zeros((len(t_msd), N+1))
+        msd_inds = np.rint(t_msd / h)
+        msd_i = 0
+        if msd_start_time is None:
+            msd_start_ind = 0
+            msd_start_pos = x0.copy() #N x 3
+        else:
+            msd_start_ind = int(msd_start_time // h)
+    save_i = 0
+    save_inds = np.rint(t_save / h)
+    if 0 == t_save[save_i]:
+        x[0] = x0
+        save_i += 1
+    #standard deviation of noise 2Dh
+    ntimesteps = int(tmax // h) + 1 #including 0th time step
+
+    for i in range(1, ntimesteps):
+        #correlated noise matrix (N x 3)
+        etas = generate_correlated_amplitudes(rhos)
+        # unit gaussian noise vector
+        etavec = np.random.randn(*x0.shape)
+        etavec /= np.sqrt(np.sum(etavec**2, axis=1)).reshape((N, 1))
+        noise = (np.sqrt(2*D*h) * etas * etavec.T).T
+        # force at position a
+        Fa = f_elas_linear_rouse(x0, k_over_xi)
+        x1 = x0 + h * Fa + noise
+        # force at position b
+        # correlated noise matrix (N x 3)
+        etas = generate_correlated_amplitudes(rhos)
+        # unit gaussian noise vector
+        etavec = np.random.randn(*x0.shape)
+        etavec /= np.sqrt(np.sum(etavec ** 2, axis=1)).reshape((N, 1))
+        noise = (np.sqrt(2 * D * h) * etas * etavec.T).T
+        Fb = f_elas_linear_rouse(x1, k_over_xi)
+        x0 = x0 + 0.5 * (Fa + Fb) * h + noise
+        if t_msd is not None:
+            if i == msd_start_ind:
+                msd_start_pos = x0.copy()
+            if i == msd_inds[msd_i]:
+                #calculate msds, increment msd save index
+                mean = np.zeros(x0[0].shape)
+                for j in range(N):
+                    diff = x0[j] - msd_start_pos[j]
+                    mean += diff
+                    msds[msd_i, j] = diff @ diff
+                #center of mass msd
+                diff = mean / N
+                msds[msd_i, -1] = diff @ diff
+                msd_i += 1
+        if i == save_inds[save_i]:
+            x[save_i] = x0
+            save_i += 1
+    return x, msds
+
 
 @njit
 def correlated_diffusion_srk2(N, L, b, rhos, meanD, stdD, h, tmax, t_save,
