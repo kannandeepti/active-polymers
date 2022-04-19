@@ -32,13 +32,15 @@ def process_sim(file):
     df = pd.read_csv(file)
     dfg = df.groupby('t')
     t_save = []
+    D = []
     X = []
     for t, mat in dfg:
         t_save.append(t)
-        X.append(mat.to_numpy()[:, 1:])
+        D.append(mat['D'].to_numpy())
+        X.append(mat.to_numpy()[:, 1:4])
     t_save = np.array(t_save)
     X = np.array(X)
-    return X, t_save
+    return X, t_save, D
 
 def extract_cov(simdir, tape=0, time=350.0):
     """ Extract list of D's and identity matrix from files in simulation directory
@@ -59,6 +61,17 @@ def extract_cov(simdir, tape=0, time=350.0):
         else:
             mat = mat[0, 1:].reshape((1, 101))
     return D, mat, rhos
+
+def extract_rhomat(simdir):
+    """ Extract contents of idmat.csv in simulation directory."""
+    simdir = Path(simdir)
+    simname = simdir.name
+    if (simdir / 'rhomat.csv').is_file():
+        df = pd.read_csv(simdir / 'rhomat.csv')
+        mat = np.array(df)
+        return mat
+    else:
+        raise ValueError(f'There is no file called rhomat.csv in {simdir}')
 
 def to_XYZ(X, temps, filepath, filename, frames=None, L=100, b=1):
     """" Convert the last frame of the simulation trajectory into an

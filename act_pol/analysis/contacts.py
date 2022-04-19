@@ -74,22 +74,22 @@ def two_point_msd(simdir, ntraj, N=101, relative=None, squared=False):
     #ignore first half of tape (steady state) and then take time slices every 10 save points
     #to sample equilibrium structures
     for j in range(ntraj):
-        X, t_save = process_sim(simdir / f'tape{j}.csv')
+        X, t_save, D = process_sim(simdir / f'tape{j}.csv')
         DT = np.diff(t_save)[0] #time between save points
         nrousetimes = int(np.ceil(350. / DT)) #number of frames that make up a rouse time
         ntimes, _, _ = X.shape
         #nreplicates = ntraj * (ntimes - 1)
         nreplicates = ntraj * len(range(nrousetimes, ntimes, nrousetimes))
         if relative:
-            Xeq, _ = process_sim(Path(relative) / f'tape{j}.csv')
+            Xeq, _, _ = process_sim(Path(relative) / f'tape{j}.csv')
         for i in range(nrousetimes, ntimes, nrousetimes):
             #for temperature modulations
-            dist = pdist(X[i, :, :], metric=metric)
+            dist = pdist(X[i, :, 0:3], metric=metric)
             Y = squareform(dist)
             average_dist += Y
             #for equilibrium case
             if relative:
-                dist = pdist(Xeq[i, :, :], metric=metric)
+                dist = pdist(Xeq[i, :, 0:3], metric=metric)
                 eq_dist += squareform(dist)
 
     average_dist = average_dist / nreplicates
@@ -251,13 +251,13 @@ def contact_probability(a, simdir, ntraj, N=101, eq_contacts=None):
     #ignore first half of tape (steady state) and then take time slices every 10 save points
     #to sample equilibrium structures
     for j in range(ntraj):
-        X, t_save = process_sim(simdir / f'tape{j}.csv')
+        X, t_save, D = process_sim(simdir / f'tape{j}.csv')
         DT = np.diff(t_save)[0]  # time between save points
         nrousetimes = int(np.ceil(350. / DT))  # number of frames that make up a rouse time
         ntimes, _, _ = X.shape
         nreplicates = ntraj * len(range(nrousetimes, ntimes, nrousetimes))
         if eq_contacts:
-            Xeq, _ = process_sim(Path('csvs/bdeq1') / f'tape{j}.csv')
+            Xeq, _, _ = process_sim(Path('csvs/bdeq1') / f'tape{j}.csv')
         for i in range(nrousetimes, ntimes, nrousetimes):
             #for temperature modulations
             dist = pdist(X[i, :, :], metric=metric)
@@ -376,7 +376,7 @@ def distance_distribution(ind1, ind2, simdir, ntraj):
     simdir = Path(simdir)
     distances = []
     for j in range(ntraj):
-        X, t_save = process_sim(simdir / f'tape{j}.csv')
+        X, t_save, D = process_sim(simdir / f'tape{j}.csv')
         ntimes, _, _ = X.shape
         DT = np.diff(t_save)[0] #time between save points
         nrousetimes = int(np.ceil(350. / DT)) #number of frames that make up a rouse time
