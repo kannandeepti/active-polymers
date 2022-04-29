@@ -43,7 +43,8 @@ def process_sim(file):
     X = []
     for t, mat in dfg:
         t_save.append(t)
-        D.append(mat['D'].to_numpy())
+        if 'D' in mat.columns:
+            D.append(mat['D'].to_numpy())
         #column 0 is time, columns 1-3 are x,y,z, and then column 4 is D
         X.append(mat.to_numpy()[:, 1:4])
     t_save = np.array(t_save)
