@@ -6,6 +6,7 @@ from pathlib import Path
 import subprocess
 import pandas as pd
 import matplotlib as mpl
+import glob
 
 def pull_down_data(simdirs, remote='dkannan@eofe8.mit.edu:~/git-remotes/active-polymers/csvs',
                    local='csvs'):
@@ -28,6 +29,12 @@ def pull_down_data(simdirs, remote='dkannan@eofe8.mit.edu:~/git-remotes/active-p
         localsim.mkdir() #this will raise a FileExistsError if directory already exists
         subprocess.run(f'rsync {remotesim}/*.csv {localsim}/')
 
+def get_ntraj(simdir):
+    """ Counts the number of files of the form tape*.csv -- aka number of independent simulation
+    trajectories that were run for this parameter set specified by simdir."""
+    tapes = glob.glob(str(simdir) + '/tape*.csv')
+    return len(tapes)
+
 def process_sim(file):
     df = pd.read_csv(file)
     dfg = df.groupby('t')
@@ -37,6 +44,7 @@ def process_sim(file):
     for t, mat in dfg:
         t_save.append(t)
         D.append(mat['D'].to_numpy())
+        #column 0 is time, columns 1-3 are x,y,z, and then column 4 is D
         X.append(mat.to_numpy()[:, 1:4])
     t_save = np.array(t_save)
     X = np.array(X)
@@ -63,7 +71,7 @@ def extract_cov(simdir, tape=0, time=350.0):
     return D, mat, rhos
 
 def extract_rhomat(simdir):
-    """ Extract contents of idmat.csv in simulation directory."""
+    """ Extract contents of rhomat.csv in simulation directory."""
     simdir = Path(simdir)
     simname = simdir.name
     if (simdir / 'rhomat.csv').is_file():

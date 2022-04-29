@@ -31,6 +31,16 @@ def test_bd_sim(i, N=101, L=100, b=1, D=1):
     X, msd = with_srk1(N, L, b, np.tile(D, N), h, tmax, t_save=t_save, t_msd=t_msd)
     return X, msd, t_save
 
+def test_bd_loops(N=101, L=100, b=1, D=1):
+    h = 0.001
+    tmax = 350.0
+    K = np.array([[25, 75]])
+    t_save = np.linspace(0, tmax, 100 + 1)
+    t_msd = np.logspace(-2, 2, 10)
+    X, msd = loops_with_srk1(N, L, b, np.tile(D, N), h, tmax, K,
+                             t_save=t_save, t_msd=t_msd, msd_start_time=1.0)
+    return X, msd, t_save
+
 def test_init_avoid(N=101, L=100, b=1, D=1, a=0.2):
     """ Test initialization of particles that do not overlap."""
     d = 2.0 ** (1 / 6) * a
@@ -111,6 +121,38 @@ def test_corr_D(N=101, L=100, b=1, tmax=350.0, h=0.001):
     X, msd = correlated_amplitudes_srk2(N, L, b, rhos, D, h, tmax, t_save=t_save,
                                     t_msd=t_msd)
     return X, msd, t_save
+
+def run_loops(i, N, L, b, D, filedir, K=None):
+    """ Run a single simulation of a Rouse polymer with loops."""
+    file = Path(filedir) / f'tape{i}.csv'
+    msd_file = Path(filedir) / f'msds{i}.csv'
+    try:
+        file.parent.mkdir(parents=True)
+    except:
+        if file.parent.is_dir() is False:
+            # if the parent directory does not exist and mkdir still failed, re-raise an exception
+            raise
+    if not K:
+        K = np.array([[25, 75]])
+    h = 0.001
+    msd_start_time = 0.0
+    tmax = 1e4 + msd_start_time + h
+    t_save = 350.0 * np.arange(0, np.floor(tmax / 350.0) + 1)
+    t_msd = np.logspace(-2, 4, 86)
+    X, msd = loops_with_srk1(N, L, b, D, h, tmax, K,
+                             t_save=t_save, t_msd=t_msd, msd_start_time=msd_start_time)
+    dfs = []
+    for i in range(X.shape[0]):
+        df = pd.DataFrame(X[i, :, :])
+        df['t'] = t_save[i]
+        df['D'] = D  # save diffusivities of beads
+        dfs.append(df)
+    df = pd.concat(dfs, ignore_index=True, sort=False)
+    df.set_index(['t'], inplace=True)
+    df.to_csv(file)
+    df = pd.DataFrame(msd)
+    df['t_msd'] = t_msd
+    df.to_csv(msd_file)
 
 def run_correlated(i, N, L, b, D, filedir, length=10, 
                   s0=30, s0_prime=70, max=0.9):
@@ -326,7 +368,7 @@ if __name__ == '__main__':
     #D = np.tile(0.25, N)
     #D[10:30] = 1.75
     #D[50:80] = 1.75
-    filedir = Path('csvs/corrAmp')
+    filedir = Path('csvs/loops_25_75')
     #define cosine wave of temperature activity with amplitude 5 times equilibrium temperature
     #period of wave is 25, max is 11, min is 1
     #reduce time step by order of magnitude due to higher diffusivity
@@ -335,15 +377,15 @@ if __name__ == '__main__':
     #alternating hot and cold regions
     #simulation `1feat_rho.5_sameT`
     #Define hot to be 1.75 and cold to be 0.25 so mean D = 1.0
-    D = np.tile(0.5, N)
-    D[0:20] = 1.5
-    D[40:60] = 1.5
-    D[80:] = 1.5
-    mat = np.zeros((1, N))
-    mat[0, 0:20] = -0.5
-    mat[0, 40:60] = 0.5
-    mat[0, 80:] = 0.5
-
+    #D = np.tile(0.5, N)
+    #D[0:20] = 1.5
+    #D[40:60] = 1.5
+    #D[80:] = 1.5
+    #mat = np.zeros((1, N))
+    #mat[0, 0:20] = -0.5
+    #mat[0, 40:60] = 0.5
+    #mat[0, 80:] = 0.5
+    """
     file = Path(filedir)/'rhomat.csv'
     try:
         file.parent.mkdir(parents=True)
@@ -354,9 +396,10 @@ if __name__ == '__main__':
     #save identity matrix for future reference
     df = pd.DataFrame(mat)
     df.to_csv(file)
+    """
     
     print(f'Running simulation {filedir.name}')
-    func = partial(run_correlated_amplitudes, N=N, L=L, b=b, rhos=mat, D=D,
+    func = partial(run_loops, N=N, L=L, b=b, D=D,
                    filedir=filedir)
     tic = time.perf_counter()
     func(0)
@@ -366,5 +409,6 @@ if __name__ == '__main__':
     #    result = p.map(func, np.arange(0, N))
     toc = time.perf_counter()
     print(f'Ran simulation in {(toc - tic):0.4f}s')
+
 
 

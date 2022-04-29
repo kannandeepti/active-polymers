@@ -4,7 +4,7 @@ Initializaiton routines for BD simulations
 
 Different initialization routines for the positions of N monomers of a Rouse chain.
 In the absence of any global forces, we initialize the Rouse chain in a free-draining equilibrium
-where the first mornomer is centered at the origin. With a confinement or self-avoidance, we
+where the first monomer is centered at the origin. With a confinement or self-avoidance, we
 keep redrawing positions of successive monomers until they do not overlap and until they are within
 the elliptical confinement.
 

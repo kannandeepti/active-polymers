@@ -207,6 +207,28 @@ def plot_cov_from_corr(mat, rhos, D, name,
     plt.savefig(f'plots/idcov_{name}.pdf')
     plt.show()
 
+def plot_cov_from_rhomat(rhomat, stds, simname,
+                         title=r'$\langle \eta_i \eta_j \rangle = 2\sqrt{D_i}\sqrt{D_j}C_{ij}$',):
+    rho = rhomat[rhomat > 0][0]
+    idmat = rhomat / rho
+    N = len(stds)
+    corr = np.outer(idmat, idmat)
+    corr *= rho
+    corr[np.diag_indices(N)] = 1.0
+    cov = np.sqrt(np.outer(stds, stds)) * corr
+    fig, ax = plt.subplots()
+    res = sns.heatmap(cov, xticklabels=25, yticklabels=25, cmap='viridis', square=True,
+                     linewidths=0, ax=ax)
+    # make frame visible
+    for _, spine in res.spines.items():
+        spine.set_visible(True)
+    ax.set_title(title)
+    ax.set_xlabel(r'Bead $i$')
+    ax.set_ylabel(r'Bead $j$')
+    fig.tight_layout()
+    plt.savefig(f'plots/covD_{simname}.pdf')
+    plt.show()
+
 def plot_msd_from_center(eqdist, step_dist, conf_step_dist, N=101):
     """ For all three simulation replicates, plot the MSD from the center
     bead in the chain."""

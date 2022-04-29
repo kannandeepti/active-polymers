@@ -61,7 +61,7 @@ cmap_distance = 'magma'
 cmap_temps = 'coolwarm'
 cmap_contacts = "YlOrRd"
 
-def two_point_msd(simdir, ntraj, N=101, relative=None, squared=False):
+def two_point_msd(simdir, ntraj=None, N=101, relative=None, squared=False):
     """Compute mean squared distance between two beads on a polymer at
     a particular time point. Plot heatmap"""
     #TODO: average over structures and average over time
@@ -71,15 +71,19 @@ def two_point_msd(simdir, ntraj, N=101, relative=None, squared=False):
     metric = 'euclidean'
     if squared:
         metric = 'sqeuclidean'
+    if ntraj is None:
+        ntraj = get_ntraj(simdir)
     #ignore first half of tape (steady state) and then take time slices every 10 save points
     #to sample equilibrium structures
-    for j in range(ntraj):
-        X, t_save, D = process_sim(simdir / f'tape{j}.csv')
+    nreplicates = 0
+    for tape in simdir.glob('tape*.csv'):
+        j = tape.name[:-4][4:]
+        X, t_save, D = process_sim(tape)
         DT = np.diff(t_save)[0] #time between save points
         nrousetimes = int(np.ceil(350. / DT)) #number of frames that make up a rouse time
         ntimes, _, _ = X.shape
         #nreplicates = ntraj * (ntimes - 1)
-        nreplicates = ntraj * len(range(nrousetimes, ntimes, nrousetimes))
+        nreplicates += len(range(nrousetimes, ntimes, nrousetimes))
         if relative:
             Xeq, _, _ = process_sim(Path(relative) / f'tape{j}.csv')
         for i in range(nrousetimes, ntimes, nrousetimes):
@@ -100,9 +104,9 @@ def two_point_msd(simdir, ntraj, N=101, relative=None, squared=False):
 
     if relative:
         eq_dist = eq_dist / nreplicates
-        return Rg_squared, average_dist, eq_dist
+        return Rg_squared, average_dist, eq_dist, nreplicates
 
-    return Rg_squared, average_dist
+    return Rg_squared, average_dist, nreplicates
 
 def compute_relative_change(dist, eqdist):
     dist1 = dist
@@ -144,12 +148,15 @@ def plot_msd_map(dist, simdir, relative=False, squared=False):
         plt.savefig(f'plots/two_point_msd_{simdir.name}.pdf')
 
 def heatmap_divider(mat, temps, simname, relative=False, relative_change=False,
-                    width=5, lines=None, marks=None, **kwargs):
+                    width=5, lines=None, marks=None, nreplicates=None, **kwargs):
     """ Plot matrix of mean separations between monomers (i,j) with color bars
      showing temperature of beads."""
     if mat is None:
         mat = np.random.randn((101, 101))
-
+    if nreplicates:
+        nreps = f', n={nreplicates}'
+    else:
+        nreps = ''
     D = np.ones((width, 101))
     for i in range(width):
         D[i, :] = temps
@@ -182,11 +189,12 @@ def heatmap_divider(mat, temps, simname, relative=False, relative_change=False,
             x, y = mark
             ax.plot(x, y, "X", color='white')
     if relative:
-        ax.set_title(r'$\langle r_{ij} \rangle  - \langle r_{ij} \rangle_{eq}$')
+        title = (r'$\langle r_{ij} \rangle  - \langle r_{ij} \rangle_{eq}$')
     elif relative_change:
-        ax.set_title(r'Relative \% change in $\langle r_{ij} \rangle$')
+        title = (r'Relative \% change in $\langle r_{ij} \rangle$')
     else:
-        ax.set_title(r'Mean distance $\langle r_{ij} \rangle$')
+        title = (r'Mean distance $\langle r_{ij} \rangle$')
+    ax.set_title(title + nreps)
     ax_bottom.set_xlabel(r'Bead $i$')
     ax_left.set_ylabel(r'Bead $j$')
     fig.tight_layout()
@@ -239,7 +247,7 @@ def mdmap_abs_rel(dist, eqdist, temps, simname, relative=False, width=5, **kwarg
     fig.tight_layout()
     plt.savefig(f'plots/two_point_msd_{simname}_rel_front.pdf')
 
-def contact_probability(a, simdir, ntraj, N=101, eq_contacts=None):
+def contact_probability(a, simdir, N=101, eq_contacts=None):
     """Compute mean squared distance between two beads on a polymer at
     a particular time point. Plot heatmap"""
     #TODO: average over structures and average over time
@@ -250,12 +258,14 @@ def contact_probability(a, simdir, ntraj, N=101, eq_contacts=None):
     metric = 'euclidean'
     #ignore first half of tape (steady state) and then take time slices every 10 save points
     #to sample equilibrium structures
-    for j in range(ntraj):
+    nreplicates = 0
+    for tape in simdir.glob('tape*.csv'):
+        j = tape.name[:-4][4:]
         X, t_save, D = process_sim(simdir / f'tape{j}.csv')
         DT = np.diff(t_save)[0]  # time between save points
         nrousetimes = int(np.ceil(350. / DT))  # number of frames that make up a rouse time
         ntimes, _, _ = X.shape
-        nreplicates = ntraj * len(range(nrousetimes, ntimes, nrousetimes))
+        nreplicates += len(range(nrousetimes, ntimes, nrousetimes))
         if eq_contacts:
             Xeq, _, _ = process_sim(Path('csvs/bdeq1') / f'tape{j}.csv')
         for i in range(nrousetimes, ntimes, nrousetimes):
@@ -274,7 +284,7 @@ def plot_contact_map(contacts, eq_contacts = None, robust=True, **kwargs):
                     cmap="vlag", xticklabels=25, yticklabels=25, robust=True, ax=ax)
         ax.set_title(r'Contact map relative to equilibrium')
     else:
-        contacts[contacts == 0] = 1e-5
+        contacts[contacts == 0] = np.min(contacts[contacts > 0])/2.0
         lognorm = LogNorm(vmin=contacts.min(), vmax=contacts.max())
         res = sns.heatmap(contacts, norm=lognorm,
                     cmap="Reds", square=True, xticklabels=25, yticklabels=25, robust=robust, ax=ax,
@@ -289,10 +299,15 @@ def plot_contact_map(contacts, eq_contacts = None, robust=True, **kwargs):
     plt.savefig(f'plots/contact_map_{simdir.name}.pdf')
     plt.show()
 
-def plot_contact_map_temps(contacts, temps, simname, width=5, a=1, tag=None, **kwargs):
+def plot_contact_map_temps(contacts, temps, simname, width=5, a=1, tag=None,
+                           nreplicates=None, **kwargs):
     if tag is None:
         tag = ''
-    contacts[contacts == 0] = 1e-5
+    if nreplicates:
+        nreps = f', n={nreplicates}'
+    else:
+        nreps = ''
+    contacts[contacts == 0] = np.min(contacts[contacts > 0])/2.0
     lognorm = LogNorm(vmin=contacts.min(), vmax=contacts.max())
     D = np.ones((width, 101))
     for i in range(width):
@@ -308,15 +323,12 @@ def plot_contact_map_temps(contacts, temps, simname, width=5, a=1, tag=None, **k
     ax_left.set_yticks([0, 25, 50, 75, 100])
     ax_left.set_xticks([])
     ax.set_xticks([])
-
-
-
     ax.set_yticks([])
     im = ax.imshow(contacts, norm=lognorm, cmap=cmap_contacts, **kwargs)
     ax_bottom.imshow(D, cmap='coolwarm', vmin=0.25, vmax=1.75)
     ax_left.imshow(D.T, cmap='coolwarm', vmin=0.25, vmax=1.75)
     fig.colorbar(im, cax=cax)
-    ax.set_title(f'Contact Map $P(\\Vert \\vec{{r}}_i - \\vec{{r}}_j \\Vert < {a})$')
+    ax.set_title(f'Contact Map $P(\\Vert \\vec{{r}}_i - \\vec{{r}}_j \\Vert < {a})$' + nreps)
     ax_bottom.set_xlabel(r'Bead $i$')
     ax_left.set_ylabel(r'Bead $j$')
     fig.tight_layout()
@@ -372,15 +384,17 @@ def vary_contact_radius(sims, radii):
             counts, contacts = contact_probability(a, f'csvs/{sim}', 96)
             plot_contact_map_temps(contacts, Ds, sim, a=a, tag=f'_a{a}')
 
-def distance_distribution(ind1, ind2, simdir, ntraj):
+def distance_distribution(ind1, ind2, simdir):
     simdir = Path(simdir)
     distances = []
-    for j in range(ntraj):
+    nreplicates = 0
+    for tape in simdir.glob('tape*.csv'):
+        j = tape.name[:-4][4:]
         X, t_save, D = process_sim(simdir / f'tape{j}.csv')
         ntimes, _, _ = X.shape
         DT = np.diff(t_save)[0] #time between save points
         nrousetimes = int(np.ceil(350. / DT)) #number of frames that make up a rouse time
-        nreplicates = ntraj * len(range(nrousetimes, ntimes, nrousetimes))
+        nreplicates += len(range(nrousetimes, ntimes, nrousetimes))
         for i in range(nrousetimes, ntimes, nrousetimes):
             #for temperature modulations
             distance = X[i, ind1, :] - X[i, ind2, :]
@@ -392,8 +406,8 @@ def plot_distance_distribution(i, j, simdir1, simdir2, label1, label2, mat):
     simdir1 = Path(simdir1)
     simname = simdir1.name
     simdir2 = Path(simdir2)
-    distances1 = distance_distribution(i, j, simdir1, 96)
-    distances2 = distance_distribution(i, j, simdir2, 96)
+    distances1 = distance_distribution(i, j, simdir1)
+    distances2 = distance_distribution(i, j, simdir2)
     print((np.mean(distances1) - np.mean(distances2))/np.mean(distances1))
     fig, ax = plt.subplots()
     n, bins, patches = ax.hist(distances1, bins='auto', density=True, histtype='step', label=label1)
