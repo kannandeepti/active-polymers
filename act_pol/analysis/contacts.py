@@ -402,6 +402,24 @@ def distance_distribution(ind1, ind2, simdir):
             distances.append(dist)
     return np.array(distances)
 
+def squared_distance_distribution(ind1, ind2, simdir):
+    simdir = Path(simdir)
+    distances = []
+    nreplicates = 0
+    for tape in simdir.glob('tape*.csv'):
+        j = tape.name[:-4][4:]
+        X, t_save, D = process_sim(simdir / f'tape{j}.csv')
+        ntimes, _, _ = X.shape
+        DT = np.diff(t_save)[0] #time between save points
+        nrousetimes = int(np.ceil(350. / DT)) #number of frames that make up a rouse time
+        nreplicates += len(range(nrousetimes, ntimes, nrousetimes))
+        for i in range(nrousetimes, ntimes, nrousetimes):
+            #for temperature modulations
+            distance = X[i, ind1, :] - X[i, ind2, :]
+            dist = distance @ distance
+            distances.append(dist)
+    return np.array(distances)
+
 def plot_distance_distribution(i, j, simdir1, simdir2, label1, label2, mat):
     simdir1 = Path(simdir1)
     simname = simdir1.name

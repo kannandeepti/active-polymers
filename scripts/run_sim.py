@@ -1,6 +1,7 @@
 """ Script to run brownian dynamics simulations of active polymer."""
 import numpy as np
 from act_pol.bdsim.bd import *
+from act_pol.bdsim.extrusion import *
 import pandas as pd
 from pathlib import Path
 from act_pol.bdsim.correlations import *
@@ -40,6 +41,23 @@ def test_bd_loops(N=101, L=100, b=1, D=1):
     X, msd = loops_with_srk1(N, L, b, np.tile(D, N), h, tmax, K,
                              t_save=t_save, t_msd=t_msd, msd_start_time=1.0)
     return X, msd, t_save
+
+def test_bd_extrusion(N=101, L=100, b=1, D=10, s1=25, s2=75):
+    print(f'Recommended dt: {recommended_dt(N, L, b, D)}')
+    p = 1.0 #always looped
+    sigma = 1.0
+    mean_loop_size = 20
+    mean_time_looped, mean_time_unlooped, vextrude = extrusion_parameters(p, sigma,
+                                                                          mean_loop_size, b=b, D=D)
+    h = 0.001
+    tmax = 100.0
+    t_save = np.linspace(0, tmax, 100 + 1)
+    t_msd = np.logspace(-2, 2, 10)
+    X, msd, mscd = loop_extrusion(N, L, b, np.tile(D, N), h, tmax,
+                   mean_time_looped, mean_time_unlooped, vextrude, s1, s2,
+                   t_save=t_save, t_msd=t_msd, msd_start_time=1.0)
+    return X, msd, mscd
+
 
 def test_init_avoid(N=101, L=100, b=1, D=1, a=0.2):
     """ Test initialization of particles that do not overlap."""
@@ -362,13 +380,13 @@ if __name__ == '__main__':
     N = 101
     L = 100
     b = 1
-    D = np.ones(N)
+    D = 10*np.ones(N)
     #B = 2 * np.pi / 25
     #D = 0.5 * np.cos(B * np.arange(0, N)) + 1
     #D = np.tile(0.25, N)
     #D[10:30] = 1.75
     #D[50:80] = 1.75
-    filedir = Path('csvs/loops_25_75')
+    filedir = Path('csvs/extrusion_25_75')
     #define cosine wave of temperature activity with amplitude 5 times equilibrium temperature
     #period of wave is 25, max is 11, min is 1
     #reduce time step by order of magnitude due to higher diffusivity
@@ -399,10 +417,11 @@ if __name__ == '__main__':
     """
     
     print(f'Running simulation {filedir.name}')
-    func = partial(run_loops, N=N, L=L, b=b, D=D,
+    func = partial(run_extrusion, N=N, L=L, b=b, D=D, p=1.0, sigma=1.0, mean_loop_size=50,
                    filedir=filedir)
     tic = time.perf_counter()
     func(0)
+    #test_bd_extrusion()
     #pool_size = 16
     #N = 96
     #with Pool(pool_size) as p:

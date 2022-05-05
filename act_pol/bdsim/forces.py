@@ -82,9 +82,9 @@ def f_elas_loops(x0, k_over_xi, relk, K, lamb):
             f[j, n] += -k_over_xi*(x0[j, n] - x0[j-1, n])
             f[j-1, n] += -k_over_xi*(x0[j-1, n] - x0[j, n])
     # add additional springs at specific locations
-    for k in range(K.shape[0]):
-        s1 = K[k, 0]
-        s2 = K[k, 1]
+    for k in range(len(K)):
+        s1 = K[k][0]
+        s2 = K[k][1]
         for n in range(3):
             f[s1, n] += -relk * k_over_xi*(x0[s1, n] - x0[s2, n])
             f[s2, n] += -relk * k_over_xi*(x0[s2, n] - x0[s1, n])
