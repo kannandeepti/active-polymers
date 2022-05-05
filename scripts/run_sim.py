@@ -140,7 +140,7 @@ def test_corr_D(N=101, L=100, b=1, tmax=350.0, h=0.001):
                                     t_msd=t_msd)
     return X, msd, t_save
 
-def run_loops(i, N, L, b, D, filedir, K=None):
+def run_loops(i, N, L, b, D, filedir, K=None, relk=0.01, lamb=0.1):
     """ Run a single simulation of a Rouse polymer with loops."""
     file = Path(filedir) / f'tape{i}.csv'
     msd_file = Path(filedir) / f'msds{i}.csv'
@@ -157,7 +157,7 @@ def run_loops(i, N, L, b, D, filedir, K=None):
     tmax = 1e4 + msd_start_time + h
     t_save = 350.0 * np.arange(0, np.floor(tmax / 350.0) + 1)
     t_msd = np.logspace(-2, 4, 86)
-    X, msd = loops_with_srk1(N, L, b, D, h, tmax, K,
+    X, msd = loops_with_srk1(N, L, b, D, h, tmax, K, relk=relk, lamb=lamb,
                              t_save=t_save, t_msd=t_msd, msd_start_time=msd_start_time)
     dfs = []
     for i in range(X.shape[0]):
@@ -386,7 +386,7 @@ if __name__ == '__main__':
     #D = np.tile(0.25, N)
     #D[10:30] = 1.75
     #D[50:80] = 1.75
-    filedir = Path('csvs/extrusion_25_75')
+    filedir = Path('csvs/loops_25_75_relk_0.01_lamb0.1')
     #define cosine wave of temperature activity with amplitude 5 times equilibrium temperature
     #period of wave is 25, max is 11, min is 1
     #reduce time step by order of magnitude due to higher diffusivity
@@ -420,12 +420,11 @@ if __name__ == '__main__':
     func = partial(run_extrusion, N=N, L=L, b=b, D=D, p=1.0, sigma=1.0, mean_loop_size=50,
                    filedir=filedir)
     tic = time.perf_counter()
-    func(0)
-    #test_bd_extrusion()
-    #pool_size = 16
-    #N = 96
-    #with Pool(pool_size) as p:
-    #    result = p.map(func, np.arange(0, N))
+    #func(0)
+    pool_size = 16
+    N = 96
+    with Pool(pool_size) as p:
+        result = p.map(func, np.arange(0, N))
     toc = time.perf_counter()
     print(f'Ran simulation in {(toc - tic):0.4f}s')
 

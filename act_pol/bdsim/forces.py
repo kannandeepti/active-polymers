@@ -71,7 +71,7 @@ def f_elas_linear_rouse(x0, k_over_xi):
     return f
 
 @njit
-def f_elas_loops(x0, k_over_xi, relk, K, lamb):
+def f_elas_loops(x0, k_over_xi, relk, K, lamb=0):
     """Compute spring forces on single, linear rouse polymer with additional
     springs located at points in K matrix."""
     N, _ = x0.shape

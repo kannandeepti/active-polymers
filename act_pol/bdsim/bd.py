@@ -388,7 +388,7 @@ def with_srk1(N, L, b, D, h, tmax, t_save=None, t_msd=None, msd_start_time=0.0, 
     return x, msds
 
 @njit
-def loops_with_srk1(N, L, b, D, h, tmax, K, relk=1.0,
+def loops_with_srk1(N, L, b, D, h, tmax, K, relk=1.0, lamb=0.0,
                     t_save=None, t_msd=None, msd_start_time=0.0, Deq=1):
     r"""
     Simulate a Rouse polymer with additional harmonic bonds coupling distinct regions along the
@@ -447,12 +447,12 @@ def loops_with_srk1(N, L, b, D, h, tmax, K, relk=1.0,
         # D = sigma^2/2 ==> sigma = np.sqrt(2*D)
         Fbrown = (np.sqrt(2*Dhat/h) * (dW - S[i]).T).T
         # estimate for slope at interval start
-        f = f_elas_loops(x0, k_over_xi, relk, K)
+        f = f_elas_loops(x0, k_over_xi, relk, K, lamb)
         K1 = f + Fbrown
         Fbrown = (np.sqrt(2*Dhat/h) * (dW + S[i]).T).T
         # estimate for slope at interval end
         x1 = x0 + h*K1
-        f = f_elas_loops(x1, k_over_xi, relk, K)
+        f = f_elas_loops(x1, k_over_xi, relk, K, lamb)
         K2 = f + Fbrown
         x0 = x0 + h * (K1 + K2)/2
         if t_msd is not None:
