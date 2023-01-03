@@ -6,6 +6,7 @@ for all pairs of monomers on the chain. A contact map can then be constructed by
 mean separation map to count contacts within a certain capture radius. Functions are also available
 to plot the distribution of distances between any two beads.
 """
+
 import numpy as np
 from .rouse import linear_mid_msd, end2end_distance_gauss, gaussian_Ploop
 from ..bdsim.correlations import *
@@ -23,6 +24,9 @@ import pandas as pd
 from pathlib import Path
 from scipy.spatial.distance import pdist, squareform
 sns.set()
+
+import deepti_utils
+from deepti_utils.plotting import *
 
 params = {'axes.edgecolor': 'black',
                   'axes.facecolor':'white',
@@ -61,12 +65,43 @@ cmap_distance = 'magma'
 cmap_temps = 'coolwarm'
 cmap_contacts = "YlOrRd"
 
-snapshot_DT = 35.0
+snapshot_DT = 350.0 #Rouse time for the polymer, i.e. time between uncorrelated snapshots in a
+# simulation trajectory
 
 def two_point_msd(simdir, ntraj=None, N=101, relative=None, squared=False):
-    """Compute mean squared distance between two beads on a polymer at
-    a particular time point. Plot heatmap"""
-    #TODO: average over structures and average over time
+    """Compute matrix with mean squared distance (msd) between all pairs of beads on a polymer at
+    a particular time point. If a second simulation directory is specified, then will compute a
+    second msd matrix.
+
+    Extracts snapshots every `snapshot_DT` time steps from each simulation trajectory
+    after throwing out the first
+
+    Parameters
+    ----------
+    simdir : Path or str
+        path to simulation results
+    ntraj : int
+        number of independent simulations in this parameter set. Default is to count
+        number of tape*.csv files in directory.
+    N : int
+        number of monomers in chain
+    relative : Path or str
+        path to results of a baseline simulation to compare to. Default is None.
+    squared : bool
+        whether to compute mean squared equiclidean distance (using 'sqeuclidean' metric
+        in scipy.spatial.distance.pdist)
+
+    Returns
+    -------
+    Rg_squared : float
+        squared radius of gyration of the polymer (defined as sum of all entries in msd
+        matrix / 2N^2)
+    average_dist : np.ndarray[float64] (N, N)
+        N x N matrix containing pairwise mean squared distance between all pairs of monomers
+    nreplicates : int
+        total number of simulation snapshots used to construct ensemble average
+
+    """
     simdir = Path(simdir)
     average_dist = np.zeros((N, N))
     eq_dist = np.zeros((N, N))
@@ -111,6 +146,8 @@ def two_point_msd(simdir, ntraj=None, N=101, relative=None, squared=False):
     return Rg_squared, average_dist, nreplicates
 
 def compute_relative_change(dist, eqdist):
+    """ Compute matrix where entries specify the percent change in mean squared distance
+    relative to some reference matrix, `eqdist`. """
     dist1 = dist
     eqdist1 = eqdist
     ind = np.diag_indices(dist.shape[0])
@@ -120,8 +157,20 @@ def compute_relative_change(dist, eqdist):
     return rel_dist
 
 def plot_msd_map(dist, simdir, relative=False, squared=False):
-    """ Plot heatmap where entry (i, j) is the mean distance between beads i and j. This version
-    does not include a bar showing the temperature of the beads or anything."""
+    """ Plot seaborn heatmap where entry (i, j) is the mean distance between beads i and j.
+    This version does not include a color bar showing the activity of the monomers.
+
+    Parameters
+    ----------
+    dist : array-like (N, N)
+        atrix containing pairwise mean squared distances between N monomers
+    simdir : str or Path
+        path to simulation directory containing raw data from which `dist` was computed
+    relative : bool
+        whether `dist` contains the difference between msds of `simdir` and a reference (eq)
+    squared : bool
+        whether `dist` contains mean squared distances as opposed to mean distances
+    """
     simdir = Path(simdir)
     fig, ax = plt.subplots()
     if relative:
@@ -152,7 +201,24 @@ def plot_msd_map(dist, simdir, relative=False, squared=False):
 def heatmap_divider(mat, temps, simname, relative=False, relative_change=False,
                     width=5, lines=None, marks=None, nreplicates=None, **kwargs):
     """ Plot matrix of mean separations between monomers (i,j) with color bars
-     showing temperature of beads."""
+     showing activity of beads.
+
+     Parameters
+     ----------
+     mat : array-like (N, N)
+        matrix containing pairwise mean squared distances between N monomers
+     temps : array (N,)
+        activities or temperatures of the N monomers to be made into a colorbar on x and y axes
+     simname : str
+        text tag for simulation from which data was computed
+     relative : bool
+        whether `mat` contains the difference between msds of `simname` and a reference (eq)
+     relative_change : bool
+        whether `mat` contains the percent change between msds of `simname` and a reference
+     width : int
+        size of colorbar in pixels (main plot will be N pixels by N pixels)
+
+     """
     if mat is None:
         mat = np.random.randn((101, 101))
     if nreplicates:
@@ -207,7 +273,15 @@ def heatmap_divider(mat, temps, simname, relative=False, relative_change=False,
     plt.show()
 
 def mdmap_abs_rel(dist, eqdist, temps, simname, relative=False, width=5, **kwargs):
-    """ Tested and this works!!!! """
+    """ Plots the relative change in mean squared separation above the diagonal and the
+    absolute mean squared separation below the diagonal, akin to Fig. 1B.
+
+    Note: the 2 plots were generated separately using relative = True or False and then
+    stitched together using Affinity Designer.
+
+    TODO: plot both halves of the diagonal in one go using masking.
+
+    """
     ind = np.diag_indices(dist.shape[0])
     dist[ind] = 1.0
     eqdist[ind] = 1.0
@@ -232,9 +306,11 @@ def mdmap_abs_rel(dist, eqdist, temps, simname, relative=False, width=5, **kwarg
     ax.set_yticks([])
     if relative:
         im = ax.imshow(dist[::-1, :], cmap=cmap_distance, **kwargs)
+        #plot the relative MSD in front
         im2 = ax.imshow(rel_dist[::-1, :], norm=colors.CenteredNorm(), cmap=cmap_relative, **kwargs)
     else:
         im2 = ax.imshow(rel_dist[::-1, :], norm=colors.CenteredNorm(), cmap=cmap_relative, **kwargs)
+        #plot the absolute MSD in front
         im = ax.imshow(dist[::-1, :], cmap=cmap_distance, **kwargs)
     ax_bottom.imshow(D, cmap='coolwarm', vmin=D.min(), vmax=D.max())
     ax_left.imshow(D.T[::-1, :], cmap='coolwarm', vmin=D.min(), vmax=D.max())
@@ -250,15 +326,34 @@ def mdmap_abs_rel(dist, eqdist, temps, simname, relative=False, width=5, **kwarg
     plt.savefig(f'plots/two_point_msd_{simname}_rel_front.pdf')
 
 def contact_probability(a, simdir, N=101, eq_contacts=None):
-    """Compute mean squared distance between two beads on a polymer at
-    a particular time point. Plot heatmap"""
-    #TODO: average over structures and average over time
+    """Compute a matrix of contact probabilities between all pairs of monomers, where a contact
+    is defined as a pairwise mean separation below `a`.
+
+    Parameters
+    ----------
+    a : float
+        capture radius
+    simdir : str or Path
+        path to simulation directory containing trajectory files
+    N : float
+        number of monomers
+
+    Returns
+    -------
+    counts : array-like (N, N)
+        raw integer counts of contacts between pairs of monomers
+    contacts : array-like (N, N)
+        matrix of contact probabilities (counts / nreplicates)
+    nreplicates : int
+        total number of simulation snapshots used to compute ensemble average
+    """
     simdir = Path(simdir)
     average_dist = np.zeros((N, N))
     #counts(i, j) = number of times monomer i and j loop within contact radius a
     counts = np.zeros((N, N))
     metric = 'euclidean'
-    #ignore first half of tape (steady state) and then take time slices every 10 save points
+    #ignore first half of tape (steady state) and then take time slices every snapshot_DT time
+    # points
     #to sample equilibrium structures
     nreplicates = 0
     for tape in simdir.glob('tape*.csv'):
@@ -281,12 +376,29 @@ def contact_probability(a, simdir, N=101, eq_contacts=None):
 
 def plot_contact_map(contacts, simname, a, width=5, tag='', vmin=None, vmax=None,
                      **kwargs):
-    #Plot contact map (each entry is probability of looping within radius a)
+    """ Plot contact map where a contact is defined as a pairwise mean squared separation
+    below the capture radius, a.
+
+    Parameters
+    ----------
+    contacts : array-like (N, N)
+        matrix of pairwise contact probabilities between all N monomers
+    simname : str
+        name of simulation from which `contacts` was computed
+    a : float
+        capture radius used to threshold mean separation and count a contact
+    width : int
+        size of colorbar in percent of plot size
+    tag : str
+        additional string to add to plot file name after simname
+
+    """
     fig, ax = plt.subplots()
     divider = make_axes_locatable(ax)
     cax = divider.append_axes("right", size=f"{width}%", pad=0.1)
     ax.set_xticks([0, 25, 50, 75, 100])
     ax.set_yticks([0, 25, 50, 75, 100])
+    #define minimum contact probability to be half of the lowest nonzero entry in contacts
     contacts[contacts == 0] = np.min(contacts[contacts > 0])/2.0
     if vmin is None and vmax is None:
         lognorm = LogNorm(vmin=contacts.min(), vmax=contacts.max())
@@ -294,9 +406,6 @@ def plot_contact_map(contacts, simname, a, width=5, tag='', vmin=None, vmax=None
         lognorm = LogNorm(vmin=vmin, vmax=vmax)
     im = ax.imshow(contacts, norm=lognorm, cmap=cmap_contacts, **kwargs)
     fig.colorbar(im, cax=cax)
-    #res = sns.heatmap(contacts, norm=lognorm,
-    #            cmap="Reds", square=True, xticklabels=25, yticklabels=25, robust=robust, ax=ax,
-    #                  **kwargs)
     ax.set_title(f'Contact Map $P(\\Vert \\vec{{r}}_i - \\vec{{r}}_j \\Vert < {a})$')
     ax.set_xlabel(r'Bead $i$')
     ax.set_ylabel(r'Bead $j$')
@@ -306,12 +415,16 @@ def plot_contact_map(contacts, simname, a, width=5, tag='', vmin=None, vmax=None
 
 def plot_contact_map_temps(contacts, temps, simname, width=5, a=1, tag=None,
                            nreplicates=None, **kwargs):
+    """ Plot contact map with a colorbar showing the activities of all monomers on bottom
+    and left axes. """
+
     if tag is None:
         tag = ''
     if nreplicates:
         nreps = f', n={nreplicates}'
     else:
         nreps = ''
+    # define minimum contact probability to be half of the lowest nonzero entry in contacts
     contacts[contacts == 0] = np.min(contacts[contacts > 0])/2.0
     lognorm = LogNorm(vmin=contacts.min(), vmax=contacts.max())
     D = np.ones((width, 101))
@@ -341,7 +454,24 @@ def plot_contact_map_temps(contacts, temps, simname, width=5, a=1, tag=None,
     plt.show()
 
 def compute_ploop(counts, nreplicates):
-    #To compute histogram as a function of s, distance along chain, sum over diagonals
+    """ Computing contact probability as a function of distance from diagonal.
+
+    Parameters
+    ----------
+    counts : array-like (N, N)
+        raw integer counts of contacts between pairs of monomers
+    nreplicates : int
+        total number of simulation snapshots used to compute ensemble average
+
+    Returns
+    -------
+    Ploop : array-like (N,)
+        contact probabilities (averaged over diagonal of contact map)
+    sdistances : array-like (N,)
+        distances along chain in Kuhn lengths
+    nreplicates : int
+
+    """
     N, _ = counts.shape
     sdistances = np.arange(0.0, N)
     Ploop = np.zeros_like(sdistances)
@@ -360,13 +490,14 @@ def compute_ploop(counts, nreplicates):
     return Ploop, sdistances, nreplicates
 
 def plot_ploop(sdistances, Ploop, nreplicates, descriptor, a=1, b=1):
-    #sdistances is anyway in units of kuhn lengths
+    """ Plot looping probability as a function of distance along the chain in Kuhn lengths
+    and compare to analytical looping probability of a Gaussian chain. """
     analytical_ploop = [gaussian_Ploop(a, n, b) for n in sdistances[1:]]
     fig, ax = plt.subplots()
     ax.plot(sdistances, Ploop, label=f'Simulation estimate (n={nreplicates})')
     ax.plot(sdistances[1:], analytical_ploop, label='Theory')
     corner = draw_power_law_triangle(-3/2, [1, -0.5], 0.5, 'up', base=10,
-                            hypotenuse_only=False)
+                            hypotenuse_only=False, ax=ax)
     ax.text(12.0, 0.07, r'$s^{-3/2}$')
     plt.yscale('log')
     plt.xscale('log')
@@ -390,6 +521,8 @@ def vary_contact_radius(sims, radii):
             plot_contact_map_temps(contacts, Ds, sim, a=a, tag=f'_a{a}')
 
 def distance_distribution(ind1, ind2, simdir):
+    """ Plot distribution of distances between monomers `ind1` and `ind2`
+    from simulation trajectories in `simdir`. """
     simdir = Path(simdir)
     distances = []
     nreplicates = 0
@@ -408,6 +541,8 @@ def distance_distribution(ind1, ind2, simdir):
     return np.array(distances)
 
 def squared_distance_distribution(ind1, ind2, simdir):
+    """ Plot distribution of squared distances between monomers `ind1` and `ind2`
+        from simulation trajectories in `simdir`. """
     simdir = Path(simdir)
     distances = []
     nreplicates = 0
@@ -426,6 +561,10 @@ def squared_distance_distribution(ind1, ind2, simdir):
     return np.array(distances)
 
 def plot_distance_distribution(i, j, simdir1, simdir2, label1, label2, mat):
+    """ Plot distribution of distances between monomers `i` and `j` from two
+    separate simulations in `simdir1` and `simdir2` which are labeled with
+    `label1` and `label2`, respectively. """
+
     simdir1 = Path(simdir1)
     simname = simdir1.name
     simdir2 = Path(simdir2)

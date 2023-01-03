@@ -3,8 +3,11 @@ Computing structural properties from simulation data
 ----------------------------------------------------
 This module can be used to analyze steady state structures from the simulation data produced
 by the act_pol.bdsim module. Functions are available to calculate/plot the end to end distance,
-radius of gyration, and distance from center of mass. For contact maps,
-see act_pol.analysis.contacts. For dynamical observables, see act_pol.analysis.msd.
+radius of gyration, and distance from center of mass.
+
+Note: the contents of this module has not been tested and is a dumping ground for random
+analysis code. For contact maps, see act_pol.analysis.contacts. For dynamical observables,
+see act_pol.analysis.msd.
 
 """
 

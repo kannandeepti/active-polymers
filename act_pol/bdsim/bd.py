@@ -2,9 +2,9 @@ r"""
 Simulations of Active Rouse polymers (based on wlcsim.bd.rouse)
 ---------------------------------------------------------------
 
-We adapt the wlcsim.bd.rouse module developed by the Spakowitz Lab
-to perform Brownian dynamics simulations of active Rouse polymers
-with correlated noise. Simulations are accelerated using just in
+We adapt the `wlcsim.bd.rouse <https://github.com/SpakowitzLab/wlcsim>`_ module developed by the
+Spakowitz Lab to perform Brownian dynamics simulations of Rouse polymers driven by correlated,
+active noise. Simulations are accelerated using just in
 time compilation (jit) using the package Numba.
 
 Contains routines for easily parameterizing Rouse polymer simulations and some
@@ -35,8 +35,7 @@ a version of the code with a second order stochastic runge kutta integrator.
     For an explicit derivation that all semiflexible chains can be
     well-approximated by the Rouse model on long enough length scales, see the
     third chapter of Doi & Edwards."
-For details on Rouse polymer theory, see the book "Theory of Polymer Dynamics"
-by Doi & Edwards.
+
 Notes
 -----
 There are various ways to parameterize Rouse polymers. In this module, we use
@@ -239,13 +238,6 @@ def with_srk1(N, L, b, D, h, tmax, t_save=None, t_msd=None, msd_start_time=0.0, 
     A. J. Roberts: https://arxiv.org/abs/1210.0933 (modification of improved Euler
     scheme for SDEs).
 
-    By in-lining the integrator and using numba, we are able to get over 1000x
-    speedup. For example, a simulation with parameters ``N=101,L=100,b=1,D=1``
-    takes about 2 min to run on my laptop when ``t=np.linspace(0,
-    1e5, 1e7+1)``.
-    It was determined empirically that adding an extra parameter ``t_save``
-    controlling which time points to keep does not slow function down.
-
     Simulate a Rouse polymer made of N beads free in solution. Save conformations
     at specified time points (t_save) and calculate the mean squared displacement of all N
     monomers as well as the center of mass MSD at specified time points (t_msd).
@@ -261,7 +253,7 @@ def with_srk1(N, L, b, D, h, tmax, t_save=None, t_msd=None, msd_start_time=0.0, 
     D : (N,) array_like
         Diffusion coefficient of N monomers. (Units of ``length**2/time``). In order to
         compute *D* from a single-locus MSD, use `measured_D_to_rouse`.
-        To recapitulate Rouse polymer, set D to be the same value for all monomers.
+        To recapitulate equilibrium Rouse polymer, set D to be the same value for all monomers.
     h : float
         Time step to use for stepping the integrator. Same units as *D*. Use
         `~.bd.recommended_dt` to compute the optimal *dt*.
@@ -287,7 +279,7 @@ def with_srk1(N, L, b, D, h, tmax, t_save=None, t_msd=None, msd_start_time=0.0, 
 
     Notes
     -----
-    The Lanvein equation for the ith beads is given by
+    The Langevin equation for the ith beads is given by
     .. math::
         \xi \frac{dx(i, t)}{dt} = - k (x(i, t) - x(i+1, t))
                                   - k (x(i, t) - x(i-1, t))
@@ -301,7 +293,7 @@ def with_srk1(N, L, b, D, h, tmax, t_save=None, t_msd=None, msd_start_time=0.0, 
     include mass units (i.e. there's no dependence on :math:`k_BT`).
 
     Force calculations, initialization steps, and MSD calculations are in-lined to make code
-    as efficient as possible. However, this is not the cleanest way of writing this code!
+    as efficient as possible.
     """
     rtol = 1e-5
     # derived parameters
@@ -309,9 +301,8 @@ def with_srk1(N, L, b, D, h, tmax, t_save=None, t_msd=None, msd_start_time=0.0, 
     bhat = np.sqrt(L0*b)  # mean squared bond length of discrete gaussian chain
     Nhat = L/b  # number of Kuhn lengths in chain
     Dhat = D*N/Nhat  # diffusion coef of a discrete gaussian chain bead
-    print(Dhat.shape)
     Deq = Deq * N / Nhat
-    #set spring constant to be 3D/b^2 where D is the diffusion coefficient of the coldest bead
+    #set spring constant to be 3Deq/b^2 where D is the average monomer diffusion coefficient
     k_over_xi = 3*Deq/bhat**2
     # initial position, free draining equilibrium
     x0 = bhat/np.sqrt(3)*np.random.randn(N, 3)
@@ -805,20 +796,25 @@ def identity_core_noise_srk2(N, L, b, D, h, tmax, t_save, mat, rhos,
 @njit
 def correlated_amplitudes_srk2(N, L, b, rhos, D, h, tmax, t_save,
                              t_msd=None, msd_start_time=None, Deq=1):
-    """ BD simulation with correlated noise using SRK 2 integrator. Instead of
-     inputting a correlation matrix directly, this function instead takes a matrix of monomer
-     identities `mat` and correlation coefficients `rhos` to generate correlated noise directly.
-     See correlations.generate_correlated_noise_vars() for details.
+    """ Rather than correlating the directions of the random forces that drive distinct
+     monomers, here we implement an approach where the noise amplitudes at distinct monomers are
+     correlated. Correlations are generated using a matrix of monomer
+     identities `mat` and correlation coefficients `rhos`.
+     See correlations.generate_correlated_amplitudes() for details.
 
-    Parameters
-    ----------
-    rhos: (k, N) array-like
+     Notes
+     -----
+     Correlating the amplitude of random forces does NOT lead to folding.
+
+     Parameters
+     ----------
+     rhos: (k, N) array-like
         kth row contains rho, 0s, or -rho to assign monomers of type 1, type 0, or type -1 for the
         kth feature along with the associated correlation coefficient
-    D : (N,) array-like
+     D : (N,) array-like
         Diffusion coefficients of N monomers
 
-    """
+     """
     rtol = 1e-5
     # derived parameters
     L0 = L / (N - 1)  # length per bead
@@ -895,10 +891,15 @@ def correlated_amplitudes_srk2(N, L, b, rhos, D, h, tmax, t_save,
 @njit
 def correlated_diffusion_srk2(N, L, b, rhos, meanD, stdD, h, tmax, t_save,
                              t_msd=None, msd_start_time=None, Deq=1):
-    """ BD simulation with correlated noise using SRK 2 integrator. Instead of
-     inputting a correlation matrix directly, this function instead takes a matrix of monomer
-     identities `mat` and correlation coefficients `rhos` to generate correlated noise directly.
-     See correlations.generate_correlated_noise_vars() for details.
+    """ Rather than correlating the directions of the random forces that drive distinct
+     monomers, here we implement an approach where the diffusion
+     coefficients of distinct monomers are correlated. Correlations are generated using a
+     matrix of monomer identities `mat` and correlation coefficients `rhos`.
+     See correlations.generate_correlated_Ds() for details.
+
+     Notes
+     -----
+     Correlating the diffusion coefficients of different monomers does NOT lead to folding.
 
     Parameters
     ----------
@@ -908,7 +909,7 @@ def correlated_diffusion_srk2(N, L, b, rhos, meanD, stdD, h, tmax, t_save,
     meanD : (N,) array-like
         Mean of distribution from which diffusion coefficients are drawn
     stdD : (N,) array-like
-        Mean of diffusion coefficients for N monomers
+        Standard deviations of distribution from which diffusion coefficients are drawn
 
     """
     rtol = 1e-5

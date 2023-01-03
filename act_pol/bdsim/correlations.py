@@ -259,7 +259,7 @@ def generate_correlated_Ds(rhos, stds, means):
 
 @njit
 def generate_correlated_amplitudes(rhos, d=3):
-    """ Generate correlated diffusion coefficients via the exact same process as before.
+    """ Generate noise amplitudes which are correlated via the exact same process as before.
 
     Parameters
     ----------

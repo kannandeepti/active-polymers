@@ -6,6 +6,9 @@ All Rouse polymer simulations involve spring forces between adjacent monomers (
 `f_elas_linear_rouse`). Here, we also implement a spherical confinement and self avoidance
 via different possible potentials. Combinations of confinement, springs, and self-avoidance
 forces are also implemented in the same for loop to make code more efficient.
+
+NOTE: self avoidance via a repulsive LJ potential is not supported. Self avoidance with a soft
+core repulsive potential is functional, but only without a spherical confinement.
 """
 
 from numba import njit
@@ -241,7 +244,7 @@ def f_spring_scr_NL(x0, k_over_xi, ks_over_xi, a, dsq, cl, nl, box_size):
 
 @njit
 def f_spring_conf_scrNL(x0, k_over_xi, ks_over_xi, a, dsq, Aex, rx, ry, rz, cl, nl, box_size):
-    """ Compute forces due to springs and soft core repulsive potential.
+    """ Compute forces due to springs and soft core repulsive potential and a confinement.
 
     Parameters
     ----------

@@ -1,4 +1,8 @@
-""" Script to efficiently calculate mean squared displacements of individual
+"""
+Dynamical observables
+---------------------
+
+Script to efficiently calculate mean squared displacements of individual
 monomers or of the center of mass of the polymer over time. """
 
 import numpy as np
@@ -43,18 +47,6 @@ params = {'axes.edgecolor': 'black',
                   'ytick.minor.right':False,
                   'lines.linewidth':2}
 plt.rcParams.update(params)
-
-def process_sim(file):
-    df = pd.read_csv(file)
-    dfg = df.groupby('t')
-    t_save = []
-    X = []
-    for t, mat in dfg:
-        t_save.append(t)
-        X.append(mat.to_numpy()[:, 1:])
-    t_save = np.array(t_save)
-    X = np.array(X)
-    return X, t_save
 
 @jit(nopython=True)
 def select_hot_cold_subsets(X, D):

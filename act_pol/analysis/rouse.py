@@ -5,13 +5,15 @@ Analytical results for Rouse polymers
 Compute quantities such as the end-to-end distance, Green's function, monomer mean squared
 displacement, and looping probabilities based on the analytical results for a Rouse polymer.
 
+Adapted from Spakowitz Lab's `wlcsim.analytical.rouse <https://github.com/SpakowitzLab/wlcsim>`_.
+
 Notes
 -----
 There are two parameterizations of the "Rouse" polymer that are commonly used,
 and they use the same variable name for two different things.
 In one, N is the number of Kuhn lengths, and in the other, N is the number of
 beads, each of which can represent an arbitrary number of Kuhn lengths.
-In this module, N is taken to mean the number of Kuhn lengths. In bd.py, the number
+In this module, N is taken to mean the number of Kuhn lengths. In act_pol.bdsim.bd.py, the number
 of Kuhn lengths is referred to as Nhat.
 """
 
@@ -29,8 +31,9 @@ _default_modes = 10000
 
 
 def terminal_relaxation(N, L, b, D):
+    """ Rouse time for the polymer."""
     Nhat = L/b
-    return b**2 * Nhat**2 / D
+    return b**2 * Nhat**2 / (3 * np.pi**2 * D)
 
 @jit
 def rouse_mode(p, n, N=1):
