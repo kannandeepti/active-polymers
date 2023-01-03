@@ -11,9 +11,8 @@ from functools import partial
 from scipy.spatial.distance import pdist, squareform
 import time
 
-#sun a sample Brownian dynamics simulation
 def test_bd_sim(i, N=101, L=100, b=1, D=1):
-    """ Test Brownian dynamics simulation for a random set of parameters
+    """ Test Brownian dynamics simulation of a simple Rouse polymer.
     A single simulation of a single chain with dt = 0.01 and 10^5 time steps
     finished in just 2 minutes.
     """
@@ -33,6 +32,7 @@ def test_bd_sim(i, N=101, L=100, b=1, D=1):
     return X, msd, t_save
 
 def test_bd_loops(N=101, L=100, b=1, D=1):
+    """ Test Rouse simulation with additional Hookean springs connecting distinct monomers."""
     h = 0.001
     tmax = 350.0
     K = np.array([[25, 75]])
@@ -43,6 +43,7 @@ def test_bd_loops(N=101, L=100, b=1, D=1):
     return X, msd, t_save
 
 def test_bd_extrusion(N=101, L=100, b=1, D=10, s1=25, s2=75):
+    """ Test Rouse simulation with a single loop extruding factor."""
     print(f'Recommended dt: {recommended_dt(N, L, b, D)}')
     p = 1.0 #always looped
     sigma = 1.0
@@ -74,9 +75,7 @@ def test_init_avoid(N=101, L=100, b=1, D=1, a=0.2):
 
 
 def test_correlated_noise(N=101, L=100, b=1, D=1):
-    """ Test Brownian dynamics simulation for a random set of parameters
-    A single simulation of a single chain with dt = 0.01 and 10^5 time steps
-    finished in just 2 minutes.
+    """ Test BD simulations with inputted correlation matrix.
     """
     t = np.linspace(0, 1e2, int(1e4) + 1)
     h = np.diff(t)[0]
@@ -89,9 +88,8 @@ def test_correlated_noise(N=101, L=100, b=1, D=1):
     return X, t_save
 
 def test_identity_correlated_noise(N=101, L=100, b=1, D=1):
-    """ Test Brownian dynamics simulation for a random set of parameters
-    A single simulation of a single chain with dt = 0.01 and 10^5 time steps
-    finished in just 2 minutes.
+    """ Test BD simulation with correlated noise generated from a matrix of monomer identities
+    and correlation coefficients.
     """
     t = np.linspace(0, 1e2, int(1e4) + 1)
     h = np.diff(t)[0]
@@ -105,9 +103,7 @@ def test_identity_correlated_noise(N=101, L=100, b=1, D=1):
     return X, t_save
 
 def test_bd_sim_confined(N=101, L=100, b=1, D=1):
-    """ Test Brownian dynamics simulation for a random set of parameters
-    A single simulation of a single chain with dt = 0.01 and 10^5 time steps
-    finished in just 2 minutes.
+    """ Test BD simulation with confinement.
     """
     dt = recommended_dt(N, L, b, D)
     print(f'Maximum recommended time step: {dt}')
@@ -360,12 +356,10 @@ def run(i, N, L, b, D, filedir, h=None, tmax=None, confined=False,
     if tmax is None:
         tmax = 1.0e4 + h
     t_save = 350.0 * np.arange(0, np.floor(tmax / 350.0) + 1)
-    #save 100 conformations
-    #t_save = np.linspace(0, 1e5, 200 + 1)
     if confined:
         X = jit_confined_srk1(N, L, b, D, h, Aex, rx, ry, rz, t, t_save)
     else:
-        X = with_srk1(N, L, b, D, h, tmax, t_save)
+        X, _ = with_srk1(N, L, b, D, h, tmax, t_save)
     dfs = []
     for i in range(X.shape[0]):
         df = pd.DataFrame(X[i, :, :])
@@ -380,47 +374,13 @@ if __name__ == '__main__':
     N = 101
     L = 100
     b = 1
-    D = 10*np.ones(N)
-    #B = 2 * np.pi / 25
-    #D = 0.5 * np.cos(B * np.arange(0, N)) + 1
-    #D = np.tile(0.25, N)
-    #D[10:30] = 1.75
-    #D[50:80] = 1.75
-    filedir = Path('csvs/loops_25_75_relk_0.01_lamb0.1')
-    #define cosine wave of temperature activity with amplitude 5 times equilibrium temperature
-    #period of wave is 25, max is 11, min is 1
-    #reduce time step by order of magnitude due to higher diffusivity
-    #t = np.linspace(0, 1e5, int(1e8) + 1)
-    #D[int(N//2)] = 10 #one hot bead
-    #alternating hot and cold regions
-    #simulation `1feat_rho.5_sameT`
-    #Define hot to be 1.75 and cold to be 0.25 so mean D = 1.0
-    #D = np.tile(0.5, N)
-    #D[0:20] = 1.5
-    #D[40:60] = 1.5
-    #D[80:] = 1.5
-    #mat = np.zeros((1, N))
-    #mat[0, 0:20] = -0.5
-    #mat[0, 40:60] = 0.5
-    #mat[0, 80:] = 0.5
-    """
-    file = Path(filedir)/'rhomat.csv'
-    try:
-        file.parent.mkdir(parents=True)
-    except:
-        if file.parent.is_dir() is False:
-            # if the parent directory does not exist and mkdir still failed, re-raise an exception
-            raise
-    #save identity matrix for future reference
-    df = pd.DataFrame(mat)
-    df.to_csv(file)
-    """
-    
+    B = 2 * np.pi / 25
+    D = 0.5 * np.cos(B * np.arange(0, N)) + 1
+    filedir = Path('csvs/cos_3x')
     print(f'Running simulation {filedir.name}')
-    func = partial(run_extrusion, N=N, L=L, b=b, D=D, p=1.0, sigma=1.0, mean_loop_size=50,
+    func = partial(run, N=N, L=L, b=b, D=D, h=0.01,
                    filedir=filedir)
     tic = time.perf_counter()
-    #func(0)
     pool_size = 16
     N = 96
     with Pool(pool_size) as p:
