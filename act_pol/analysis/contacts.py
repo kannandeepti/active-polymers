@@ -61,6 +61,8 @@ cmap_distance = 'magma'
 cmap_temps = 'coolwarm'
 cmap_contacts = "YlOrRd"
 
+snapshot_DT = 35.0
+
 def two_point_msd(simdir, ntraj=None, N=101, relative=None, squared=False):
     """Compute mean squared distance between two beads on a polymer at
     a particular time point. Plot heatmap"""
@@ -80,7 +82,7 @@ def two_point_msd(simdir, ntraj=None, N=101, relative=None, squared=False):
         j = tape.name[:-4][4:]
         X, t_save, D = process_sim(tape)
         DT = np.diff(t_save)[0] #time between save points
-        nrousetimes = int(np.ceil(350. / DT)) #number of frames that make up a rouse time
+        nrousetimes = int(np.ceil(snapshot_DT/ DT)) #number of frames that make up a rouse time
         ntimes, _, _ = X.shape
         #nreplicates = ntraj * (ntimes - 1)
         nreplicates += len(range(nrousetimes, ntimes, nrousetimes))
@@ -263,7 +265,7 @@ def contact_probability(a, simdir, N=101, eq_contacts=None):
         j = tape.name[:-4][4:]
         X, t_save, D = process_sim(simdir / f'tape{j}.csv')
         DT = np.diff(t_save)[0]  # time between save points
-        nrousetimes = int(np.ceil(350. / DT))  # number of frames that make up a rouse time
+        nrousetimes = int(np.ceil(snapshot_DT / DT))  # number of frames that make up a rouse time
         ntimes, _, _ = X.shape
         nreplicates += len(range(nrousetimes, ntimes, nrousetimes))
         if eq_contacts:
@@ -277,26 +279,29 @@ def contact_probability(a, simdir, N=101, eq_contacts=None):
     contacts = counts / nreplicates
     return counts, contacts, nreplicates
 
-def plot_contact_map(contacts, eq_contacts = None, robust=True, **kwargs):
+def plot_contact_map(contacts, simname, a, width=5, tag='', vmin=None, vmax=None,
+                     **kwargs):
     #Plot contact map (each entry is probability of looping within radius a)
-    if eq_contacts is not None:
-        res = sns.heatmap(contacts - eq_contacts, center=0.0, square=True,
-                    cmap="vlag", xticklabels=25, yticklabels=25, robust=True, ax=ax)
-        ax.set_title(r'Contact map relative to equilibrium')
-    else:
-        contacts[contacts == 0] = np.min(contacts[contacts > 0])/2.0
+    fig, ax = plt.subplots()
+    divider = make_axes_locatable(ax)
+    cax = divider.append_axes("right", size=f"{width}%", pad=0.1)
+    ax.set_xticks([0, 25, 50, 75, 100])
+    ax.set_yticks([0, 25, 50, 75, 100])
+    contacts[contacts == 0] = np.min(contacts[contacts > 0])/2.0
+    if vmin is None and vmax is None:
         lognorm = LogNorm(vmin=contacts.min(), vmax=contacts.max())
-        res = sns.heatmap(contacts, norm=lognorm,
-                    cmap="Reds", square=True, xticklabels=25, yticklabels=25, robust=robust, ax=ax,
-                          **kwargs)
-        ax.set_title(r'Contact Map $P(\Vert \vec{r}_i - \vec{r}_j \Vert < a)$')
+    else:
+        lognorm = LogNorm(vmin=vmin, vmax=vmax)
+    im = ax.imshow(contacts, norm=lognorm, cmap=cmap_contacts, **kwargs)
+    fig.colorbar(im, cax=cax)
+    #res = sns.heatmap(contacts, norm=lognorm,
+    #            cmap="Reds", square=True, xticklabels=25, yticklabels=25, robust=robust, ax=ax,
+    #                  **kwargs)
+    ax.set_title(f'Contact Map $P(\\Vert \\vec{{r}}_i - \\vec{{r}}_j \\Vert < {a})$')
     ax.set_xlabel(r'Bead $i$')
     ax.set_ylabel(r'Bead $j$')
-    # make frame visible
-    for _, spine in res.spines.items():
-        spine.set_visible(True)
     fig.tight_layout()
-    plt.savefig(f'plots/contact_map_{simdir.name}.pdf')
+    plt.savefig(f'plots/contact_map_{simname}{tag}.pdf')
     plt.show()
 
 def plot_contact_map_temps(contacts, temps, simname, width=5, a=1, tag=None,
@@ -393,7 +398,7 @@ def distance_distribution(ind1, ind2, simdir):
         X, t_save, D = process_sim(simdir / f'tape{j}.csv')
         ntimes, _, _ = X.shape
         DT = np.diff(t_save)[0] #time between save points
-        nrousetimes = int(np.ceil(350. / DT)) #number of frames that make up a rouse time
+        nrousetimes = int(np.ceil(snapshot_DT / DT)) #number of frames that make up a rouse time
         nreplicates += len(range(nrousetimes, ntimes, nrousetimes))
         for i in range(nrousetimes, ntimes, nrousetimes):
             #for temperature modulations
@@ -411,7 +416,7 @@ def squared_distance_distribution(ind1, ind2, simdir):
         X, t_save, D = process_sim(simdir / f'tape{j}.csv')
         ntimes, _, _ = X.shape
         DT = np.diff(t_save)[0] #time between save points
-        nrousetimes = int(np.ceil(350. / DT)) #number of frames that make up a rouse time
+        nrousetimes = int(np.ceil(snapshot_DT / DT)) #number of frames that make up a rouse time
         nreplicates += len(range(nrousetimes, ntimes, nrousetimes))
         for i in range(nrousetimes, ntimes, nrousetimes):
             #for temperature modulations

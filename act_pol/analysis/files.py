@@ -7,6 +7,13 @@ import subprocess
 import pandas as pd
 import matplotlib as mpl
 import glob
+import sysrsync
+
+REMOTE = 'dkannan@eofe8:mit.edu:~/git-remotes/active-polymers/csvs/extrusion'
+LOCAL = '/Users/deepti/Documents/MIT/Research/git-remotes/active-polymers/csvs'
+
+def pull_down_extrusion_data(remote=REMOTE, local=LOCAL):
+    sysrsync.run(source=remote, destination=local, options=['-a', '-r', '-v'])
 
 def pull_down_data(simdirs, remote='dkannan@eofe8.mit.edu:~/git-remotes/active-polymers/csvs',
                    local='csvs'):

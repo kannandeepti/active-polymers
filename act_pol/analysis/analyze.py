@@ -9,21 +9,21 @@ see act_pol.analysis.contacts. For dynamical observables, see act_pol.analysis.m
 """
 
 import numpy as np
-from .rouse import linear_mid_msd, end2end_distance_gauss, gaussian_Ploop
+from .rouse import end2end_distance_gauss
 from ..bdsim.correlations import *
 from .files import *
 
 import matplotlib as mpl
 from matplotlib import pyplot as plt
-import matplotlib.colors as colors
-from matplotlib.colors import LogNorm, Normalize
-from mpl_toolkits.axes_grid1 import make_axes_locatable, ImageGrid
 import seaborn as sns
 import cmasher as cmr
 import pandas as pd
 from pathlib import Path
-from scipy.spatial.distance import pdist, squareform
+
 sns.set()
+
+import deepti_utils
+from deepti_utils.plotting import *
 
 params = {'axes.edgecolor': 'black',
                   'axes.facecolor':'white',
@@ -349,61 +349,6 @@ def plot_chain(simdir, ntraj=96, mfig=None, **kwargs):
                       color=colors[i], **kwargs)
     return mfig
 
-def draw_power_law_triangle(alpha, x0, width, orientation, base=10,
-                            hypotenuse_only=False, **kwargs):
-    """Draw a triangle showing the best-fit power-law on a log-log scale.
-
-    Parameters
-    ----------
-    alpha : float
-        the power-law slope being demonstrated
-    x0 : (2,) array_like
-        the "left tip" of the power law triangle, where the hypotenuse starts
-        (in log units, to be consistent with draw_triangle)
-    width : float
-        horizontal size in number of major log ticks (default base-10)
-    orientation : string
-        'up' or 'down', control which way the triangle's right angle "points"
-    base : float
-        scale "width" for non-base 10
-
-    Returns
-    -------
-    corner : (2,) np.array
-        coordinates of the right-angled corner of the triangle
-    """
-    if 'color' in kwargs:
-        color = kwargs['color']
-    else:
-        color = 'k'
-    x0, y0 = [base**x for x in x0]
-    x1 = x0*base**width
-    y1 = y0*(x1/x0)**alpha
-    plt.plot([x0, x1], [y0, y1], 'k')
-    if (alpha >= 0 and orientation == 'up') \
-    or (alpha < 0 and orientation == 'down'):
-        if hypotenuse_only:
-            plt.plot([x0, x1], [y0, y1], color=color, **kwargs)
-        else:
-            plt.plot([x0, x1], [y1, y1], color=color, **kwargs)
-            plt.plot([x0, x0], [y0, y1], color=color, **kwargs)
-        # plt.plot lines have nice rounded caps
-        # plt.hlines(y1, x0, x1, **kwargs)
-        # plt.vlines(x0, y0, y1, **kwargs)
-        corner = [x0, y1]
-    elif (alpha >= 0 and orientation == 'down') \
-    or (alpha < 0 and orientation == 'up'):
-        if hypotenuse_only:
-            plt.plot([x0, x1], [y0, y1], color=color, **kwargs)
-        else:
-            plt.plot([x0, x1], [y0, y0], color=color, **kwargs)
-            plt.plot([x1, x1], [y0, y1], color=color, **kwargs)
-        # plt.hlines(y0, x0, x1, **kwargs)
-        # plt.vlines(x1, y0, y1, **kwargs)
-        corner = [x1, y0]
-    else:
-        raise ValueError(r"Need $\alpha\in\mathbb{R} and orientation\in{'up', 'down'}")
-    return corner
 
 def analyze_idcorrs(N=101):
     """ Generate two-point MSD plots, contact maps, plots of covariance matrices for the

@@ -26,14 +26,14 @@ def extrusion_parameters(p, sigma, mean_loop_size, b=1, D=1, g=2):
     print(f'Rouse time for loop of size {mean_loop_size}: {rouse_time}')
     mean_time_looped = rouse_time / sigma #in seconds
     mean_time_unlooped = (1 - p) * mean_time_looped
-    vextrude = mean_loop_size / mean_time_looped
+    vextrude = mean_loop_size / mean_time_looped #in monomers per second
     vextrude /= g
     return mean_time_looped, mean_time_unlooped, vextrude
 
 @njit
 def loop_extrusion(N, L, b, D, h, tmax,
                    mean_time_looped, mean_time_unlooped, vextrude, s1, s2,
-                   relk=1.0, t_save=None, t_msd=None, msd_start_time=0.0, Deq=1):
+                   relk=1.0, t_save=None, t_msd=None, msd_start_time=0.0, Deq=10):
     r"""
     Simulate a Rouse polymer with a single extruder that can bind for mean time looped,
     stay unbound for mean_time_unlooped, and extrude loops at a rate 2*vextrude.

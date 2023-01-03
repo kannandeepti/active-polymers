@@ -132,7 +132,7 @@ def recommended_dt(N, L, b, D):
     determined empirically that decreasing the time step beyond that point
     doesn't seem to make the MSD any more accurate.
     Note that it can be shown that *no* scheme can accurately reproduce the
-    bead behavior using larger time steps than the time required to diffuse a
+    bead behavior using larger time s teps than the time required to diffuse a
     distance of one Kuhn length.
     Notes
     -----
