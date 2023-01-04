@@ -8,12 +8,10 @@ to plot the distribution of distances between any two beads.
 """
 
 import numpy as np
-from .rouse import linear_mid_msd, end2end_distance_gauss, gaussian_Ploop
-from ..bdsim.correlations import *
+from .rouse import gaussian_Ploop
 from .files import *
 from .analyze import draw_power_law_triangle
 
-import matplotlib as mpl
 from matplotlib import pyplot as plt
 import matplotlib.colors as colors
 from matplotlib.colors import LogNorm, Normalize
@@ -115,14 +113,14 @@ def two_point_msd(simdir, ntraj=None, N=101, relative=None, squared=False):
     nreplicates = 0
     for tape in simdir.glob('tape*.csv'):
         j = tape.name[:-4][4:]
-        X, t_save, D = process_sim(tape)
+        X, t_save = process_sim(tape)
         DT = np.diff(t_save)[0] #time between save points
         nrousetimes = int(np.ceil(snapshot_DT/ DT)) #number of frames that make up a rouse time
         ntimes, _, _ = X.shape
         #nreplicates = ntraj * (ntimes - 1)
         nreplicates += len(range(nrousetimes, ntimes, nrousetimes))
         if relative:
-            Xeq, _, _ = process_sim(Path(relative) / f'tape{j}.csv')
+            Xeq, _ = process_sim(Path(relative) / f'tape{j}.csv')
         for i in range(nrousetimes, ntimes, nrousetimes):
             #for temperature modulations
             dist = pdist(X[i, :, 0:3], metric=metric)
@@ -358,13 +356,13 @@ def contact_probability(a, simdir, N=101, eq_contacts=None):
     nreplicates = 0
     for tape in simdir.glob('tape*.csv'):
         j = tape.name[:-4][4:]
-        X, t_save, D = process_sim(simdir / f'tape{j}.csv')
+        X, t_save = process_sim(simdir / f'tape{j}.csv')
         DT = np.diff(t_save)[0]  # time between save points
         nrousetimes = int(np.ceil(snapshot_DT / DT))  # number of frames that make up a rouse time
         ntimes, _, _ = X.shape
         nreplicates += len(range(nrousetimes, ntimes, nrousetimes))
         if eq_contacts:
-            Xeq, _, _ = process_sim(Path('csvs/bdeq1') / f'tape{j}.csv')
+            Xeq, _ = process_sim(Path('csvs/bdeq1') / f'tape{j}.csv')
         for i in range(nrousetimes, ntimes, nrousetimes):
             #for temperature modulations
             dist = pdist(X[i, :, :], metric=metric)
@@ -528,7 +526,7 @@ def distance_distribution(ind1, ind2, simdir):
     nreplicates = 0
     for tape in simdir.glob('tape*.csv'):
         j = tape.name[:-4][4:]
-        X, t_save, D = process_sim(simdir / f'tape{j}.csv')
+        X, t_save = process_sim(simdir / f'tape{j}.csv')
         ntimes, _, _ = X.shape
         DT = np.diff(t_save)[0] #time between save points
         nrousetimes = int(np.ceil(snapshot_DT / DT)) #number of frames that make up a rouse time
@@ -548,7 +546,7 @@ def squared_distance_distribution(ind1, ind2, simdir):
     nreplicates = 0
     for tape in simdir.glob('tape*.csv'):
         j = tape.name[:-4][4:]
-        X, t_save, D = process_sim(simdir / f'tape{j}.csv')
+        X, t_save = process_sim(simdir / f'tape{j}.csv')
         ntimes, _, _ = X.shape
         DT = np.diff(t_save)[0] #time between save points
         nrousetimes = int(np.ceil(snapshot_DT / DT)) #number of frames that make up a rouse time
