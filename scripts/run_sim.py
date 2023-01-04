@@ -134,7 +134,7 @@ def run_identity_correlated(i, N, L, b, D, filedir, mat, rhos, h=None, tmax=None
     df['t_msd'] = t_msd
     df.to_csv(msd_file)
 
-def simulation_for_fig1A():
+def simulation_for_fig2A():
     """ Simulation code used to produce the simulation snapshot in Figure 1A of
     https://doi.org/10.1101/2022.12.24.521789. """
     N = 101
