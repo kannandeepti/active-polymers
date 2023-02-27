@@ -136,25 +136,25 @@ def test_corr_D(N=101, L=100, b=1, tmax=350.0, h=0.001):
                                     t_msd=t_msd)
     return X, msd, t_save
 
-def run_loops(i, N, L, b, D, filedir, K=None, relk=0.01, lamb=0.1):
+def run_loops(i, N, L, b, D, filedir, s1, s2, relk=0.01, lamb=0.1,
+             desired_tmax=1e3, DT=35.0, msd_start_time=0.0):
     """ Run a single simulation of a Rouse polymer with loops."""
     file = Path(filedir) / f'tape{i}.csv'
     msd_file = Path(filedir) / f'msds{i}.csv'
+    mscd_file = Path(filedir) / f'mscd{i}.csv'
     try:
         file.parent.mkdir(parents=True)
     except:
         if file.parent.is_dir() is False:
             # if the parent directory does not exist and mkdir still failed, re-raise an exception
             raise
-    if not K:
-        K = np.array([[25, 75]])
     h = 0.001
-    msd_start_time = 0.0
-    tmax = 1e4 + msd_start_time + h
-    t_save = 350.0 * np.arange(0, np.floor(tmax / 350.0) + 1)
-    t_msd = np.logspace(-2, 4, 86)
-    X, msd = loops_with_srk1(N, L, b, D, h, tmax, K, relk=relk, lamb=lamb,
-                             t_save=t_save, t_msd=t_msd, msd_start_time=msd_start_time)
+    tmax = desired_tmax + msd_start_time + h
+    t_save = DT * np.arange(0, np.floor(tmax / DT) + 1)
+    t_msd = np.logspace(-1, 3, 100)
+    X, msd, mscd = loops_with_srk1(N, L, b, D, h, tmax, s1, s2, relk=relk, lamb=lamb,
+                             t_save=t_save, t_msd=t_msd,
+                             msd_start_time=msd_start_time, Deq=np.mean(D))
     dfs = []
     for i in range(X.shape[0]):
         df = pd.DataFrame(X[i, :, :])
@@ -167,6 +167,9 @@ def run_loops(i, N, L, b, D, filedir, K=None, relk=0.01, lamb=0.1):
     df = pd.DataFrame(msd)
     df['t_msd'] = t_msd
     df.to_csv(msd_file)
+    df = pd.DataFrame(mscd)
+    df['t_msd'] = t_msd
+    df.to_csv(mscd_file)
 
 def run_correlated(i, N, L, b, D, filedir, length=10, 
                   s0=30, s0_prime=70, max=0.9):
@@ -382,7 +385,7 @@ if __name__ == '__main__':
                    filedir=filedir)
     tic = time.perf_counter()
     pool_size = 16
-    N = 96
+    N = 480
     with Pool(pool_size) as p:
         result = p.map(func, np.arange(0, N))
     toc = time.perf_counter()
